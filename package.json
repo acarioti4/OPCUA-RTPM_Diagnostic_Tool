@@ -1,6 +1,6 @@
 {
   "name": "opc-rtpm-tcp-tester",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "TCP connectivity tester - OPC UA Server to RTPM Server",
   "main": "main.js",
   "scripts": {

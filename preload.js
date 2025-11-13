@@ -13,5 +13,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('detect-service', { serverPort }),
 
   opcHelloTest: (host, port, endpointUrl) =>
-    ipcRenderer.invoke('opc-hello-test', { host, port, endpointUrl })
+    ipcRenderer.invoke('opc-hello-test', { host, port, endpointUrl }),
+
+  onShowAbout: (callback) => {
+    ipcRenderer.on('show-about', (_event, data) => callback(data || {}));
+  }
 });
