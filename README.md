@@ -32,3 +32,10 @@ Goal: Prove whether System B can initiate connections back to System A
             Monitor for incoming SYN packets from System B
             Log any connection attempts (successful or blocked)
             Use tcpdump/Wireshark or raw socket monitoring
+
+How to Install:
+    - 'npm install'
+    - 'npm start'
+
+How to Build executable:
+    - 'npm run build'
