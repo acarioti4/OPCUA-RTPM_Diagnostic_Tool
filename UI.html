@@ -613,6 +613,9 @@
 
           <button type="button" class="btn" id="btnHelloTest">OPC UA Hello/ACK Test</button>
           <div class="form-group" style="margin-top:12px;">
+            <button type="button" class="btn" id="btnDiscoverRtpm">Discover RTPM Listening Port</button>
+          </div>
+          <div class="form-group" style="margin-top:12px;">
             <button type="button" class="btn" id="btnRunDiscovery">Discover Local Listeners</button>
           </div>
           <div class="form-group">
@@ -691,6 +694,7 @@
     const btnDetectService = document.getElementById('btnDetectService');
     const detectServerPort = document.getElementById('detectServerPort');
     const btnHelloTest = document.getElementById('btnHelloTest');
+    const btnDiscoverRtpm = document.getElementById('btnDiscoverRtpm');
     const btnRunDiscovery = document.getElementById('btnRunDiscovery');
     const btnCheckFirewall = document.getElementById('btnCheckFirewall');
     const btnAddFirewallRule = document.getElementById('btnAddFirewallRule');
@@ -803,6 +807,89 @@
         testBtn.textContent = 'Start Connection Test';
         progressSection.classList.remove('active');
         progressBar.classList.remove('loading');
+      }
+    });
+
+    function uniqueNumbers(arr) {
+      const s = new Set(arr.filter(v => Number.isFinite(v)));
+      return Array.from(s.values());
+    }
+
+    // Discover RTPM listening port on detected remote IP
+    btnDiscoverRtpm.addEventListener('click', async () => {
+      btnDiscoverRtpm.disabled = true;
+      btnDiscoverRtpm.textContent = 'Discovering...';
+      try {
+        // 1) Determine remote IP (prefer detect-service result)
+        let host = document.getElementById('ipAddressOpc').value.trim();
+        if (!host) {
+          const port = parseInt(detectServerPort.value) || 4840;
+          const res = await window.electronAPI.detectService(port);
+          if (res && res.connections && res.connections.length) {
+            host = res.connections[0].remoteAddress;
+            document.getElementById('ipAddressOpc').value = host;
+          }
+        }
+        if (!host) {
+          alert('Unable to auto-detect RTPM IP. Please enter the RTPM Service IP first.');
+          return;
+        }
+        // 2) Try HEL on candidate ports
+        const userPort = parseInt(document.getElementById('startPortOpc').value);
+        const candidates = uniqueNumbers([userPort, 4840]);
+        let found = null;
+        for (const p of candidates) {
+          try {
+            const r = await window.electronAPI.opcHelloTest(host, p, `opc.tcp://${host}:${p}`);
+            if (r && r.ok) {
+              found = { port: p, res: r };
+              break;
+            }
+          } catch {}
+        }
+        const sec = ensureSection('rtpmDiscoverSection', 'RTPM Listener Discovery');
+        if (found) {
+          prependItem(sec, 'open', `RTPM OPC UA listener found`, `${host}:${found.port} (ACK received)`);
+          // Also render HEL detail
+          const status = 'open';
+          const item = document.createElement('div');
+          item.className = `result-item ${status}`;
+          item.innerHTML = `
+            <strong>OPC UA Hello → ${host}:${found.port} - ACK RECEIVED</strong>
+            <span>${found.res.message || ''}</span>
+          `;
+          resultsList.insertBefore(item, sec.nextSibling);
+          resultsSection.classList.add('active');
+          return;
+        }
+        // 3) Quick scan fallback (RTPM default range assumption)
+        const scanStart = 8000;
+        const scanEnd = 8999;
+        const scan = await window.electronAPI.testPorts(host, scanStart, scanEnd, 200);
+        const openPorts = (scan && scan.results ? scan.results : scan || []).filter(r => r.status === 'open').map(r => r.port);
+        if (openPorts.length === 0) {
+          prependItem(sec, 'closed', 'No open ports detected in 8000-8999', `Host: ${host}. Try a wider scan in the TCP tab or specify a known port.`);
+          return;
+        }
+        prependItem(sec, 'warning', 'Open ports detected', `${host}: ${openPorts.join(', ')}`);
+        // 4) Try HEL on open ports
+        for (const p of openPorts) {
+          try {
+            const r = await window.electronAPI.opcHelloTest(host, p, `opc.tcp://${host}:${p}`);
+            const status = r && r.ok ? 'open' : 'closed';
+            const title = r && r.ok ? `OPC UA Hello → ${host}:${p} - ACK RECEIVED` : `OPC UA Hello → ${host}:${p} - FAILED`;
+            prependItem(sec, status, title, r && r.message ? r.message : '');
+            if (r && r.ok) {
+              return;
+            }
+          } catch {}
+        }
+        prependItem(sec, 'closed', 'No OPC UA ACK received on scanned ports', `Consider scanning a broader range or verify RTPM listens on a non-standard port.`);
+      } catch (e) {
+        alert('Discovery error: ' + e.message);
+      } finally {
+        btnDiscoverRtpm.disabled = false;
+        btnDiscoverRtpm.textContent = 'Discover RTPM Listening Port';
       }
     });
 
