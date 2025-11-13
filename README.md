@@ -34,8 +34,8 @@ Goal: Prove whether System B can initiate connections back to System A
             Use tcpdump/Wireshark or raw socket monitoring
 
 How to Install:
-    - 'npm install'
-    - 'npm start'
+-    'npm install'
+-    'npm start'
 
 How to Build executable:
-    - 'npm run build'
+-    'npm run build'
