@@ -18,18 +18,18 @@
       --bg-end: #764ba2;
     }
 
-    /* Light: Blue Sky / Forest */
+    /* Light: Warm Earthy */
     .theme-light {
-      --container-bg: #ffffff;
-      --text-primary: #1f3d2a; /* deep forest green */
-      --text-muted: #4f6a5b;
-      --results-bg: #eef7ff;   /* soft sky panel */
-      --log-bg: #e6f2ff;       /* light sky note */
-      --log-border: #5aa9e6;   /* sky blue border */
-      --accent-start: #60a5fa; /* sky blue */
-      --accent-end: #34d399;   /* forest green */
-      --bg-start: #a1c4fd;     /* blue sky */
-      --bg-end: #c2e9fb;       /* bright sky */
+      --container-bg: #fffaf5; /* warm off-white */
+      --text-primary: #2f2a25; /* deep neutral brown */
+      --text-muted: #6b6058;   /* muted warm grey-brown */
+      --results-bg: #f6f1ea;   /* warm panel */
+      --log-bg: #fbf3e7;       /* warm note */
+      --log-border: #d4a373;   /* warm amber */
+      --accent-start: #d4a373; /* amber */
+      --accent-end: #b07d62;   /* clay */
+      --bg-start: #f2e9e1;     /* linen */
+      --bg-end: #e9dccd;       /* sand */
     }
 
     /* Dark: Classic */
@@ -123,9 +123,9 @@
     }
 
     .theme-chip.light.active {
-      background: linear-gradient(135deg, #a1c4fd, #c2e9fb);
-      color: #0f2a1f;
-      box-shadow: 0 0 0 2px rgba(255,255,255,0.8) inset, 0 6px 20px rgba(97, 173, 253, 0.35);
+      background: linear-gradient(135deg, #f2dcc2, #e8c6a3);
+      color: #3a2a1a;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.8) inset, 0 6px 20px rgba(212, 163, 115, 0.35);
     }
 
     .theme-chip.dark.active {
@@ -161,7 +161,7 @@
 
     input:focus {
       outline: none;
-      border-color: #667eea;
+      border-color: var(--accent-start);
     }
 
     .port-range {
@@ -185,7 +185,7 @@
 
     .btn:hover:not(:disabled) {
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+      box-shadow: 0 6px 20px rgba(212, 163, 115, 0.35);
     }
 
     .btn:disabled {
