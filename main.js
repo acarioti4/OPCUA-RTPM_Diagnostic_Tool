@@ -4,10 +4,11 @@ const path = require('path');
 const net = require('net');
 const fs = require('fs');
 const { exec } = require('child_process');
+const os = require('os');
 const { ensureLogDir, generateLogContent } = require('./logs');
 const { testPort, testPortsConcurrent } = require('./portScan');
 const { createHelloBuffer, parseAckHeader } = require('./opcuaHello');
-const { parseConnectionsByLocalPort, parseNetstatForTarget, pidToNameMap } = require('./netstat');
+const { parseConnectionsByLocalPort, parseNetstatForTarget, parseListeningPorts, pidToNameMap } = require('./netstat');
 
 let mainWindow;
 
@@ -119,6 +120,149 @@ ipcMain.handle('test-ports', async (event, { host, startPort, endPort, concurren
     logPath,
     logFileName
   };
+});
+
+// Enumerate local TCP listeners with PID→process mapping (optionally filter by ports)
+ipcMain.handle('list-listeners', async (event, { filterPorts = [] } = {}) => {
+  const cmd = 'netstat -ano -p tcp';
+  return new Promise((resolve) => {
+    exec(cmd, { windowsHide: true }, async (err, stdout) => {
+      if (err) {
+        resolve({ listeners: [], error: err.message });
+        return;
+      }
+      let listeners = parseListeningPorts(stdout);
+      if (Array.isArray(filterPorts) && filterPorts.length) {
+        const set = new Set(filterPorts.map((p) => Number(p)));
+        listeners = listeners.filter((l) => set.has(Number(l.localPort)));
+      }
+      const pidMap = await pidToNameMap(listeners.map(l => l.pid));
+      listeners.forEach(l => { l.process = pidMap[l.pid] || ''; });
+      resolve({ listeners });
+    });
+  });
+});
+
+// Check Windows Firewall inbound rules for a specific TCP port
+ipcMain.handle('check-firewall', async (event, { port } = {}) => {
+  if (!port) {
+    throw new Error('port is required');
+  }
+  // Try PowerShell (preferred)
+  const psCmd = [
+    'powershell',
+    '-NoProfile',
+    '-Command',
+    `"try {`,
+    `$p=${Number(port)};`,
+    `$filters = Get-NetFirewallPortFilter -Protocol TCP | Where-Object { $_.LocalPort -eq $p -or $_.LocalPort -eq '$p' };`,
+    `$rules = foreach ($f in $filters) { Get-NetFirewallRule -AssociatedNetFirewallPortFilter $f | Where-Object { $_.Direction -eq 'Inbound' } };`,
+    `$rules | Select-Object DisplayName, Enabled, Action, Profile, Direction | ConvertTo-Json -Depth 3`,
+    `} catch { '' }"`,
+  ].join(' ');
+  function parseNetshBlocks(text, targetPort) {
+    const blocks = text.split(/\r?\n\s*-\s*+\r?\n/i); // not always present; fallback to "Rule Name:" separators
+    const lines = text.split(/\r?\n/);
+    const result = [];
+    let current = null;
+    for (const line of lines) {
+      const nameMatch = /^\s*Rule Name:\s*(.+)\s*$/i.exec(line);
+      if (nameMatch) {
+        if (current) result.push(current);
+        current = { name: nameMatch[1], lines: [] };
+        continue;
+      }
+      if (current) {
+        current.lines.push(line);
+      }
+    }
+    if (current) result.push(current);
+    const matches = [];
+    for (const b of result) {
+      const textBlock = b.lines.join('\n');
+      const hasInbound = /Direction:\s*In\b/i.test(textBlock);
+      const hasEnabled = /Enabled:\s*Yes/i.test(textBlock);
+      const hasAllow = /Action:\s*Allow/i.test(textBlock);
+      const hasTcp = /Protocol:\s*TCP/i.test(textBlock) || /Protocol:\s*Any/i.test(textBlock);
+      const ports = [];
+      const portMatch = /LocalPort:\s*([^\r\n]+)/i.exec(textBlock);
+      if (portMatch) {
+        const val = portMatch[1].trim();
+        if (val.toLowerCase() === 'any') {
+          ports.push('any');
+        } else {
+          val.split(',').map(s => s.trim()).forEach(v => ports.push(v));
+        }
+      }
+      const portOk = ports.includes('any') || ports.includes(String(targetPort));
+      if (hasInbound && hasEnabled && hasAllow && hasTcp && portOk) {
+        matches.push({ displayName: b.name, enabled: true, action: 'Allow', direction: 'Inbound' });
+      }
+    }
+    return matches;
+  }
+  return new Promise((resolve) => {
+    exec(psCmd, { windowsHide: true }, (psErr, psStdout) => {
+      if (!psErr && psStdout && psStdout.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(psStdout);
+          const arr = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+          resolve({ ok: true, source: 'powershell', rules: arr });
+          return;
+        } catch {
+          // fall through to netsh
+        }
+      }
+      // Fallback to netsh (text parsing)
+      const netshCmd = 'netsh advfirewall firewall show rule name=all dir=in verbose';
+      exec(netshCmd, { windowsHide: true, maxBuffer: 1024 * 1024 * 8 }, (nErr, nStdout) => {
+        if (nErr) {
+          resolve({ ok: false, source: 'netsh', error: nErr.message, rules: [] });
+          return;
+        }
+        const matches = parseNetshBlocks(nStdout || '', Number(port));
+        resolve({ ok: true, source: 'netsh', rules: matches });
+      });
+    });
+  });
+});
+
+// Add Windows Firewall inbound allow rule for a TCP port
+ipcMain.handle('add-firewall-rule', async (event, { port, name } = {}) => {
+  if (!port) {
+    throw new Error('port is required');
+  }
+  const ruleName = name || `OPC UA Allow TCP ${port}`;
+  const cmd = `netsh advfirewall firewall add rule name="${ruleName.replace(/"/g, '')}" dir=in action=allow protocol=TCP localport=${Number(port)}`;
+  return new Promise((resolve) => {
+    exec(cmd, { windowsHide: true }, (err, stdout, stderr) => {
+      if (err) {
+        resolve({ ok: false, error: err.message, stdout, stderr });
+      } else {
+        resolve({ ok: true, stdout });
+      }
+    });
+  });
+});
+
+// List local network adapters and IPv4 addresses
+ipcMain.handle('list-adapters', async () => {
+  const ifaces = os.networkInterfaces();
+  const adapters = [];
+  for (const [name, entries] of Object.entries(ifaces)) {
+    if (!Array.isArray(entries)) continue;
+    const ipv4s = entries.filter(e => e.family === 'IPv4').map(e => ({
+      address: e.address,
+      netmask: e.netmask,
+      mac: e.mac,
+      cidr: e.cidr,
+      internal: e.internal
+    }));
+    if (ipv4s.length) {
+      adapters.push({ name, addresses: ipv4s });
+    }
+  }
+  return { adapters };
 });
 
 // Detect active client connections to local OPC UA Server port (e.g., Kepware 4840)

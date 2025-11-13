@@ -15,6 +15,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   opcHelloTest: (host, port, endpointUrl) =>
     ipcRenderer.invoke('opc-hello-test', { host, port, endpointUrl }),
 
+  listListeners: (filterPorts) =>
+    ipcRenderer.invoke('list-listeners', { filterPorts }),
+
+  listAdapters: () =>
+    ipcRenderer.invoke('list-adapters'),
+
+  checkFirewall: (port) =>
+    ipcRenderer.invoke('check-firewall', { port }),
+
+  addFirewallRule: (port, name) =>
+    ipcRenderer.invoke('add-firewall-rule', { port, name }),
+
   onShowAbout: (callback) => {
     ipcRenderer.on('show-about', (_event, data) => callback(data || {}));
   }

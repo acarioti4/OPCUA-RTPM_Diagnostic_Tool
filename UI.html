@@ -12,40 +12,35 @@
       --results-bg: #f8f9fa;
       --log-bg: #e7f3ff;
       --log-border: #2196F3;
-      --accent-start: #667eea;
-      --accent-end: #764ba2;
-      --bg-start: #667eea;
-      --bg-end: #764ba2;
+      --accent: #667eea; /* single solid accent */
+      --bg: #f3f4f6;     /* single solid background */
+      --shadow-accent: rgba(102, 126, 234, 0.35); /* glow color */
     }
 
     /* Light: Fragrant Warm */
     .theme-light {
-      --container-bg: #fffaf7; /* warm off-white */
-      --text-primary: #2f2a25; /* deep neutral brown */
-      --text-muted: #6f635c;   /* muted warm grey-brown */
-      --results-bg: #f9f2ee;   /* warm panel */
-      --log-bg: #fff1e6;       /* peach note */
-      --log-border: #e1a499;   /* rose-amber */
-      --accent-start: #f6ad9b; /* peach/apricot */
-      --accent-end: #d97b6f;   /* rose clay */
-      --bg-start: #fff3ec;     /* peach */
-      --bg-end: #f6e8dd;       /* almond */
-      --shadow-accent: rgba(246, 173, 155, 0.35);
+      --container-bg: #fffaf0; /* linen/ivory */
+      --text-primary: #2a1f0e; /* deep warm brown */
+      --text-muted: #6b5d48;   /* muted cocoa */
+      --results-bg: #fff7ed;   /* warm sand panel */
+      --log-bg: #fffbeb;       /* pale amber note */
+      --log-border: #f59e0b;   /* amber-500 */
+      --accent: #d97706;       /* amber-600 */
+      --bg: #fdf6e3;           /* solarized-light-ish */
+      --shadow-accent: rgba(217, 119, 6, 0.35);
     }
 
     /* Dark: Appealing, easy on eyes */
     .theme-dark {
-      --container-bg: #1e2430; /* twilight slate */
-      --text-primary: #e7e9ef; /* light text */
-      --text-muted: #bac2cf;   /* soft muted */
-      --results-bg: #121826;   /* dark panel */
-      --log-bg: #182033;       /* deep slate */
-      --log-border: #a78bfa;   /* soft violet */
-      --accent-start: #a78bfa; /* violet */
-      --accent-end: #7c3aed;   /* deeper violet */
-      --bg-start: #0f1220;     /* night indigo */
-      --bg-end: #1a1f2e;       /* deep slate */
-      --shadow-accent: rgba(167, 139, 250, 0.35);
+      --container-bg: #0f172a; /* slate-950/900 */
+      --text-primary: #e6faff; /* icy light */
+      --text-muted: #9fb7c2;   /* cool muted */
+      --results-bg: #0b1220;   /* deep navy panel */
+      --log-bg: #0a192f;       /* darker navy */
+      --log-border: #22d3ee;   /* cyan-400 */
+      --accent: #06b6d4;       /* cyan-500 */
+      --bg: #060b16;           /* near-black blue */
+      --shadow-accent: rgba(6, 182, 212, 0.35);
     }
 
     * {
@@ -56,18 +51,12 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
-      background-size: 200% 200%;
-      animation: gradientShift 10s ease infinite;
+      background: var(--bg);
       padding: 20px;
       min-height: 100vh;
     }
 
-    @keyframes gradientShift {
-      0% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-      100% { background-position: 0% 50%; }
-    }
+    /* removed gradient animations to keep solid tones */
 
     .container {
       max-width: 850px;
@@ -79,14 +68,15 @@
     }
 
     .header {
-      background: linear-gradient(135deg, var(--accent-start) 0%, var(--accent-end) 100%);
+      background: var(--accent);
       color: white;
       padding: 30px;
       text-align: center;
       position: relative;
+      box-shadow: 0 6px 20px var(--shadow-accent), 0 0 24px var(--shadow-accent);
     }
     body.theme-dark .header {
-      background: linear-gradient(135deg, var(--accent-start) 0%, var(--accent-end) 100%);
+      background: var(--accent);
       color: var(--text-primary);
     }
 
@@ -121,7 +111,7 @@
     .tab-button.active {
       color: var(--text-primary);
       background: var(--container-bg);
-      box-shadow: 0 -2px 0 0 var(--accent-start) inset;
+      box-shadow: 0 -2px 0 0 var(--accent) inset, 0 4px 14px rgba(0,0,0,0.06);
     }
     .tab-panel {
       display: none;
@@ -155,13 +145,13 @@
     }
 
     .theme-chip.light.active {
-      background: linear-gradient(135deg, #f7d1c6, #f0b9ab);
+      background: var(--accent);
       color: #3a2a1a;
-      box-shadow: 0 0 0 2px rgba(255,255,255,0.8) inset, 0 6px 20px rgba(246, 173, 155, 0.35);
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.8) inset, 0 6px 20px var(--shadow-accent);
     }
 
     .theme-chip.dark.active {
-      background: linear-gradient(135deg, #5b4fa1, #2a2f45);
+      background: var(--accent);
       color: #e5e7eb;
       box-shadow: 0 0 0 2px rgba(0,0,0,0.5) inset, 0 6px 20px rgba(0,0,0,0.35);
     }
@@ -193,7 +183,7 @@
 
     input:focus {
       outline: none;
-      border-color: var(--accent-start);
+      border-color: var(--accent);
     }
 
     .port-range {
@@ -203,7 +193,7 @@
     }
 
     .btn {
-      background: linear-gradient(135deg, var(--accent-start) 0%, var(--accent-end) 100%);
+      background: var(--accent);
       color: white;
       border: none;
       padding: 14px 28px;
@@ -213,11 +203,12 @@
       cursor: pointer;
       width: 100%;
       transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12), 0 0 12px rgba(0,0,0,0), 0 0 0 1px rgba(255,255,255,0.04) inset;
     }
 
     .btn:hover:not(:disabled) {
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px var(--shadow-accent);
+      box-shadow: 0 6px 20px var(--shadow-accent), 0 0 18px var(--shadow-accent);
     }
 
     .btn:disabled {
@@ -243,7 +234,7 @@
     }
 
     .progress-bar {
-      background: linear-gradient(90deg, var(--accent-start) 0%, var(--accent-end) 100%);
+      background: var(--accent);
       height: 100%;
       transition: width 0.3s;
       display: flex;
@@ -254,36 +245,10 @@
       font-weight: 600;
       position: relative;
       overflow: hidden;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,0.08) inset;
-      background-size: 200% 100%;
-      animation: barSheen 3s ease infinite;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 0 16px var(--shadow-accent), 0 0 0 1px rgba(255,255,255,0.08) inset;
     }
 
-    @keyframes barSheen {
-      0% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-      100% { background-position: 0% 50%; }
-    }
-
-    .progress-bar.loading::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: repeating-linear-gradient(
-        45deg,
-        rgba(255,255,255,0.25) 0px,
-        rgba(255,255,255,0.25) 10px,
-        transparent 10px,
-        transparent 20px
-      );
-      animation: stripeMove 1s linear infinite;
-      pointer-events: none;
-    }
-
-    @keyframes stripeMove {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(20px); }
-    }
+    /* Remove loading stripes; keep solid with glow only */
 
     /* Category heading */
     .category-title {
@@ -417,7 +382,7 @@
       width: 18px;
       height: 18px;
       border: 3px solid rgba(0,0,0,0.12);
-      border-top-color: var(--accent-start);
+      border-top-color: var(--accent);
       border-radius: 50%;
       display: inline-block;
       animation: spin 0.8s linear infinite;
@@ -471,7 +436,7 @@
     .log-info strong {
       display: block;
       margin-bottom: 5px;
-      color: var(--accent-end);
+      color: var(--accent);
     }
 
     /* About Modal */
@@ -647,6 +612,18 @@
           </div>
 
           <button type="button" class="btn" id="btnHelloTest">OPC UA Hello/ACK Test</button>
+          <div class="form-group" style="margin-top:12px;">
+            <button type="button" class="btn" id="btnRunDiscovery">Discover Local Listeners</button>
+          </div>
+          <div class="form-group">
+            <button type="button" class="btn" id="btnCheckFirewall">Check Windows Firewall (Inbound)</button>
+          </div>
+          <div class="form-group">
+            <button type="button" class="btn" id="btnAddFirewallRule">Allow Port in Windows Firewall</button>
+          </div>
+          <div class="form-group">
+            <button type="button" class="btn" id="btnRunDiagnostics">Run Diagnostics & Suggestions</button>
+          </div>
         </form>
       </div>
 
@@ -714,6 +691,10 @@
     const btnDetectService = document.getElementById('btnDetectService');
     const detectServerPort = document.getElementById('detectServerPort');
     const btnHelloTest = document.getElementById('btnHelloTest');
+    const btnRunDiscovery = document.getElementById('btnRunDiscovery');
+    const btnCheckFirewall = document.getElementById('btnCheckFirewall');
+    const btnAddFirewallRule = document.getElementById('btnAddFirewallRule');
+    const btnRunDiagnostics = document.getElementById('btnRunDiagnostics');
     const tabTcp = document.getElementById('tabTcp');
     const tabOpc = document.getElementById('tabOpc');
     const tcpPanel = document.getElementById('tcpPanel');
@@ -958,6 +939,182 @@
       }
     });
 
+    function ensureSection(id, titleText) {
+      let header = document.getElementById(id);
+      if (!header) {
+        header = document.createElement('h4');
+        header.className = 'category-title';
+        header.id = id;
+        header.textContent = titleText;
+        resultsList.insertBefore(header, resultsList.firstChild);
+      }
+      return header;
+    }
+
+    function prependItem(sectionHeader, status, title, detail) {
+      const item = document.createElement('div');
+      item.className = `result-item ${status}`;
+      item.innerHTML = `
+        <strong>${title}</strong>
+        <span>${detail}</span>
+      `;
+      resultsList.insertBefore(item, sectionHeader.nextSibling);
+      resultsSection.classList.add('active');
+    }
+
+    // Discovery: local listeners and adapters
+    btnRunDiscovery.addEventListener('click', async () => {
+      const port = parseInt(document.getElementById('startPortOpc').value);
+      btnRunDiscovery.disabled = true;
+      btnRunDiscovery.textContent = 'Discovering...';
+      try {
+        const [listenersRes, adaptersRes] = await Promise.all([
+          window.electronAPI.listListeners([port]),
+          window.electronAPI.listAdapters()
+        ]);
+        const sec = ensureSection('discoverySection', 'Discovery');
+        // Adapters
+        if (adaptersRes && adaptersRes.adapters) {
+          const addrs = adaptersRes.adapters.flatMap(a => a.addresses.map(x => `${a.name} ${x.address}${x.internal ? ' (loopback)' : ''}`));
+          prependItem(sec, 'open', 'Local Adapters', addrs.length ? addrs.join(', ') : 'No IPv4 addresses found');
+        }
+        // Listeners
+        if (listenersRes && listenersRes.listeners) {
+          if (!listenersRes.listeners.length) {
+            prependItem(sec, 'closed', `Listeners on port ${port}`, 'No local listeners detected');
+          } else {
+            listenersRes.listeners.forEach(l => {
+              const bind = l.localAddress;
+              const proc = l.process || `PID ${l.pid}`;
+              const status = (bind === '127.0.0.1') ? 'warning' : 'open';
+              const msg = `Bind ${bind}:${l.localPort} (${proc})`;
+              prependItem(sec, status, `Listener detected`, msg);
+            });
+          }
+        }
+      } catch (e) {
+        alert('Discovery error: ' + e.message);
+      } finally {
+        btnRunDiscovery.disabled = false;
+        btnRunDiscovery.textContent = 'Discover Local Listeners';
+      }
+    });
+
+    // Firewall: check rules for port
+    btnCheckFirewall.addEventListener('click', async () => {
+      const port = parseInt(document.getElementById('startPortOpc').value);
+      btnCheckFirewall.disabled = true;
+      btnCheckFirewall.textContent = 'Checking...';
+      try {
+        const res = await window.electronAPI.checkFirewall(port);
+        const sec = ensureSection('firewallSection', 'Windows Firewall');
+        if (res && res.rules && res.rules.length) {
+          res.rules.forEach(r => {
+            const status = (String(r.Action || r.action).toLowerCase() === 'allow') ? 'open' : 'closed';
+            const detail = `Rule: ${r.DisplayName || r.displayName || ''} (${r.Direction || r.direction})`;
+            prependItem(sec, status, `Inbound TCP ${port}: ${status === 'open' ? 'Allowed' : 'Blocked'}`, detail);
+          });
+        } else {
+          prependItem(sec, 'closed', `Inbound TCP ${port}: No allow rule found`, `Source: ${res && res.source ? res.source : 'unknown'}`);
+        }
+      } catch (e) {
+        alert('Firewall check error: ' + e.message);
+      } finally {
+        btnCheckFirewall.disabled = false;
+        btnCheckFirewall.textContent = 'Check Windows Firewall (Inbound)';
+      }
+    });
+
+    // Firewall: add allow rule
+    btnAddFirewallRule.addEventListener('click', async () => {
+      const port = parseInt(document.getElementById('startPortOpc').value);
+      btnAddFirewallRule.disabled = true;
+      btnAddFirewallRule.textContent = 'Adding rule...';
+      try {
+        const res = await window.electronAPI.addFirewallRule(port, `Allow TCP ${port} OPC UA`);
+        const sec = ensureSection('firewallSection', 'Windows Firewall');
+        if (res && res.ok) {
+          prependItem(sec, 'open', `Rule added for TCP ${port}`, 'Firewall rule created successfully');
+          // Re-check status
+          const chk = await window.electronAPI.checkFirewall(port);
+          if (chk && chk.rules && chk.rules.length) {
+            chk.rules.forEach(r => {
+              const status = (String(r.Action || r.action).toLowerCase() === 'allow') ? 'open' : 'closed';
+              const detail = `Rule: ${r.DisplayName || r.displayName || ''} (${r.Direction || r.direction})`;
+              prependItem(sec, status, `Inbound TCP ${port}: ${status === 'open' ? 'Allowed' : 'Blocked'}`, detail);
+            });
+          }
+        } else {
+          prependItem(sec, 'closed', `Failed to add rule for TCP ${port}`, (res && res.error) ? res.error : 'Unknown error (Admin rights required?)');
+        }
+      } catch (e) {
+        alert('Firewall add error: ' + e.message);
+      } finally {
+        btnAddFirewallRule.disabled = false;
+        btnAddFirewallRule.textContent = 'Allow Port in Windows Firewall';
+      }
+    });
+
+    // Diagnostics: run discovery + firewall + suggestions
+    btnRunDiagnostics.addEventListener('click', async () => {
+      const port = parseInt(document.getElementById('startPortOpc').value);
+      btnRunDiagnostics.disabled = true;
+      btnRunDiagnostics.textContent = 'Diagnosing...';
+      try {
+        const [listenersRes, adaptersRes, fwRes] = await Promise.all([
+          window.electronAPI.listListeners([port]),
+          window.electronAPI.listAdapters(),
+          window.electronAPI.checkFirewall(port)
+        ]);
+        // Discovery
+        const disc = ensureSection('discoverySection', 'Discovery');
+        if (adaptersRes && adaptersRes.adapters) {
+          const addrs = adaptersRes.adapters.flatMap(a => a.addresses.map(x => `${a.name} ${x.address}${x.internal ? ' (loopback)' : ''}`));
+          prependItem(disc, 'open', 'Local Adapters', addrs.length ? addrs.join(', ') : 'No IPv4 addresses found');
+        }
+        if (listenersRes && listenersRes.listeners && listenersRes.listeners.length) {
+          listenersRes.listeners.forEach(l => {
+            const bind = l.localAddress;
+            const proc = l.process || `PID ${l.pid}`;
+            const status = (bind === '127.0.0.1') ? 'warning' : 'open';
+            const msg = `Bind ${bind}:${l.localPort} (${proc})`;
+            prependItem(disc, status, `Listener detected`, msg);
+          });
+        } else {
+          prependItem(disc, 'closed', `Listeners on port ${port}`, 'No local listeners detected');
+        }
+        // Firewall
+        const fw = ensureSection('firewallSection', 'Windows Firewall');
+        if (fwRes && fwRes.rules && fwRes.rules.length) {
+          fwRes.rules.forEach(r => {
+            const status = (String(r.Action || r.action).toLowerCase() === 'allow') ? 'open' : 'closed';
+            const detail = `Rule: ${r.DisplayName || r.displayName || ''} (${r.Direction || r.direction})`;
+            prependItem(fw, status, `Inbound TCP ${port}: ${status === 'open' ? 'Allowed' : 'Blocked'}`, detail);
+          });
+        } else {
+          prependItem(fw, 'closed', `Inbound TCP ${port}: No allow rule found`, `Source: ${fwRes && fwRes.source ? fwRes.source : 'unknown'}`);
+        }
+        // Suggestions
+        const sug = ensureSection('suggestionsSection', 'Suggested Fixes');
+        if (!listenersRes || !listenersRes.listeners || !listenersRes.listeners.length) {
+          prependItem(sug, 'closed', 'Start/Configure OPC UA service', `No listener on ${port}. Start the service or configure it to listen on this port.`);
+        } else {
+          const anyLoop = listenersRes.listeners.some(l => l.localAddress === '127.0.0.1');
+          if (anyLoop) {
+            prependItem(sug, 'warning', 'Change binding IP', `Service is bound to 127.0.0.1. Configure to bind 0.0.0.0 or the target adapter IP.`);
+          }
+        }
+        if (!fwRes || !fwRes.rules || !fwRes.rules.length) {
+          prependItem(sug, 'warning', 'Open inbound firewall rule', `Allow TCP ${port} on Windows Firewall (use the button above).`);
+        }
+        prependItem(sug, 'warning', 'Check upstream firewall/NAT', 'If timeouts persist, review network ACLs/VPN/NAT between peers.');
+      } catch (e) {
+        alert('Diagnostics error: ' + e.message);
+      } finally {
+        btnRunDiagnostics.disabled = false;
+        btnRunDiagnostics.textContent = 'Run Diagnostics & Suggestions';
+      }
+    });
     // Tab Switching
     function activateTab(tab) {
       const isTcp = tab === 'tcp';

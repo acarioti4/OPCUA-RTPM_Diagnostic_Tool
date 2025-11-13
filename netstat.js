@@ -48,6 +48,24 @@ function parseNetstatForTarget(text, remoteHost, remotePort) {
   return matches;
 }
 
+function parseListeningPorts(text) {
+  const lines = text.split(/\r?\n/);
+  const re = /^\s*TCP\s+([^\s:]+):(\d+)\s+([^\s:]+):(\*|\d+)\s+(\S+)\s+(\d+)/i;
+  const listeners = [];
+  for (const line of lines) {
+    const m = re.exec(line);
+    if (!m) continue;
+    const localAddr = m[1];
+    const localPort = Number(m[2]);
+    const state = m[5];
+    const pid = Number(m[6]);
+    if (state === 'LISTENING') {
+      listeners.push({ localAddress: localAddr, localPort, state, pid });
+    }
+  }
+  return listeners;
+}
+
 function pidToNameMap(pids) {
   const unique = Array.from(new Set(pids.filter((p) => Number.isFinite(p))));
   const map = {};
@@ -67,6 +85,7 @@ function pidToNameMap(pids) {
 module.exports = {
   parseConnectionsByLocalPort,
   parseNetstatForTarget,
+  parseListeningPorts,
   pidToNameMap
 };
 
