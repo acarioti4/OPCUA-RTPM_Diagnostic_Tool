@@ -100,6 +100,36 @@
       font-size: 14px;
     }
 
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 2px solid rgba(0,0,0,0.06);
+      margin-bottom: 16px;
+    }
+    .tab-button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      font-weight: 700;
+      padding: 10px 14px;
+      border-radius: 8px 8px 0 0;
+      cursor: pointer;
+      transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .tab-button.active {
+      color: var(--text-primary);
+      background: var(--container-bg);
+      box-shadow: 0 -2px 0 0 var(--accent-start) inset;
+    }
+    .tab-panel {
+      display: none;
+    }
+    .tab-panel.active {
+      display: block;
+    }
+
     .theme-toggle {
       position: absolute;
       top: 20px;
@@ -513,42 +543,102 @@
     </div>
 
     <div class="content">
-      <form id="testForm">
-        <div class="form-group">
-          <label for="ipAddress">RTPM Service IP Address</label>
-          <div style="display:flex; gap:10px;">
+      <div class="tabs" role="tablist" aria-label="Test Type">
+        <button id="tabTcp" class="tab-button active" role="tab" aria-selected="true" aria-controls="tcpPanel">TCP Connection Test</button>
+        <button id="tabOpc" class="tab-button" role="tab" aria-selected="false" aria-controls="opcPanel">OPC-RTPM Test</button>
+      </div>
+
+      <!-- TCP Connection Test Panel -->
+      <div id="tcpPanel" class="tab-panel active" role="tabpanel" aria-labelledby="tabTcp">
+        <form id="tcpForm">
+          <div class="form-group">
+            <label for="ipAddressTcp">Target Host/IP</label>
             <input 
               type="text" 
-              id="ipAddress" 
+              id="ipAddressTcp" 
               placeholder="e.g., 192.168.1.100" 
               required
               pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
-              style="flex:1"
-            >
-            <button type="button" class="btn" id="btnDetectService" style="width:auto; white-space:nowrap;">Auto-Detect RTPM Service IP</button>
-          </div>
-          <div style="display:flex; align-items:center; gap:8px; margin-top:6px; font-size:12px; color: var(--text-muted);">
-            <span>Detect from active Kepware connections (OPC UA server port)</span>
-            <input 
-              type="number" 
-              id="detectServerPort" 
-              min="1" 
-              max="65535" 
-              value="4840"
-              aria-label="OPC UA Server Port for detection"
-              style="width:100px"
             >
           </div>
-        </div>
 
-        
+          <div class="port-range">
+            <div class="form-group">
+              <label for="startPortTcp">Start Port</label>
+              <input 
+                type="number" 
+                id="startPortTcp" 
+                min="1" 
+                max="65535" 
+                value="4840"
+                required
+              >
+            </div>
 
-        <div class="port-range">
+            <div class="form-group">
+              <label for="endPortTcp">End Port</label>
+              <input 
+                type="number" 
+                id="endPortTcp" 
+                min="1" 
+                max="65535" 
+                value="4850"
+                required
+              >
+            </div>
+          </div>
+
           <div class="form-group">
-            <label for="startPort">Start Port</label>
+            <label for="concurrencyTcp">Concurrent tests (1-500)</label>
             <input 
               type="number" 
-              id="startPort" 
+              id="concurrencyTcp" 
+              min="1" 
+              max="500" 
+              value="100"
+              required
+            >
+          </div>
+
+          <button type="submit" class="btn" id="testBtn">Start Connection Test</button>
+        </form>
+      </div>
+
+      <!-- OPC-RTPM Test Panel -->
+      <div id="opcPanel" class="tab-panel" role="tabpanel" aria-labelledby="tabOpc">
+        <form id="opcForm">
+          <div class="form-group">
+            <label for="ipAddressOpc">RTPM Service IP Address</label>
+            <div style="display:flex; gap:10px;">
+              <input 
+                type="text" 
+                id="ipAddressOpc" 
+                placeholder="e.g., 192.168.1.100" 
+                required
+                pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
+                style="flex:1"
+              >
+              <button type="button" class="btn" id="btnDetectService" style="width:auto; white-space:nowrap;">Auto-Detect RTPM Service IP</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:6px; font-size:12px; color: var(--text-muted);">
+              <span>Detect from active Kepware connections (OPC UA server port)</span>
+              <input 
+                type="number" 
+                id="detectServerPort" 
+                min="1" 
+                max="65535" 
+                value="4840"
+                aria-label="OPC UA Server Port for detection"
+                style="width:100px"
+              >
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="startPortOpc">OPC UA Port</label>
+            <input 
+              type="number" 
+              id="startPortOpc" 
               min="1" 
               max="65535" 
               value="4840"
@@ -556,35 +646,9 @@
             >
           </div>
 
-          <div class="form-group">
-            <label for="endPort">End Port</label>
-            <input 
-              type="number" 
-              id="endPort" 
-              min="1" 
-              max="65535" 
-              value="4850"
-              required
-            >
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="concurrency">Concurrent tests (1-500)</label>
-          <input 
-            type="number" 
-            id="concurrency" 
-            min="1" 
-            max="500" 
-            value="100"
-            required
-          >
-        </div>
-
-        <button type="submit" class="btn" id="testBtn">Start Connection Test</button>
-        <div style="height:10px;"></div>
-        <button type="button" class="btn" id="btnHelloTest">OPC UA Hello/ACK Test (single port)</button>
-      </form>
+          <button type="button" class="btn" id="btnHelloTest">OPC UA Hello/ACK Test</button>
+        </form>
+      </div>
 
       <div class="progress-section" id="progressSection">
         <div class="progress-bar-container">
@@ -624,14 +688,14 @@
       <div class="about-body">
         <div class="about-meta">
           <div><strong>Version:</strong> <span id="aboutVersion">-</span></div>
-          <div>2025 Aperture Labs, LLC</div>
+          <div>2025</div>
         </div>
       </div>
     </div>
   </div>
 
   <script>
-    const form = document.getElementById('testForm');
+    const tcpForm = document.getElementById('tcpForm');
     const testBtn = document.getElementById('testBtn');
     const progressSection = document.getElementById('progressSection');
     const progressBar = document.getElementById('progressBar');
@@ -650,6 +714,10 @@
     const btnDetectService = document.getElementById('btnDetectService');
     const detectServerPort = document.getElementById('detectServerPort');
     const btnHelloTest = document.getElementById('btnHelloTest');
+    const tabTcp = document.getElementById('tabTcp');
+    const tabOpc = document.getElementById('tabOpc');
+    const tcpPanel = document.getElementById('tcpPanel');
+    const opcPanel = document.getElementById('opcPanel');
     const aboutOverlay = document.getElementById('aboutOverlay');
     const aboutClose = document.getElementById('aboutClose');
     const aboutVersion = document.getElementById('aboutVersion');
@@ -700,12 +768,12 @@
 
     });
 
-    form.addEventListener('submit', async (e) => {
+    tcpForm.addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const ipAddress = document.getElementById('ipAddress').value;
-      const startPort = parseInt(document.getElementById('startPort').value);
-      const endPort = parseInt(document.getElementById('endPort').value);
+      const ipAddress = document.getElementById('ipAddressTcp').value;
+      const startPort = parseInt(document.getElementById('startPortTcp').value);
+      const endPort = parseInt(document.getElementById('endPortTcp').value);
 
       if (startPort > endPort) {
         alert('Start port must be less than or equal to end port');
@@ -724,7 +792,7 @@
       allResults = [];
 
       try {
-        const concurrency = parseInt(document.getElementById('concurrency').value) || 100;
+        const concurrency = parseInt(document.getElementById('concurrencyTcp').value) || 100;
         const result = await window.electronAPI.testPorts(ipAddress, startPort, endPort, concurrency);
         allResults = result.results;
 
@@ -826,7 +894,7 @@
           alert('Detect error: ' + res.error);
         } else if (res.connections && res.connections.length) {
           const c = res.connections[0];
-          document.getElementById('ipAddress').value = c.remoteAddress;
+          document.getElementById('ipAddressOpc').value = c.remoteAddress;
           alert(`Detected service IP: ${c.remoteAddress} (remote port ${c.remotePort})`);
         } else {
           alert('No active connections detected on the specified OPC UA server port.');
@@ -841,8 +909,8 @@
 
     // Single-port OPC UA Hello/ACK test
     btnHelloTest.addEventListener('click', async () => {
-      const host = document.getElementById('ipAddress').value.trim();
-      const port = parseInt(document.getElementById('startPort').value);
+      const host = document.getElementById('ipAddressOpc').value.trim();
+      const port = parseInt(document.getElementById('startPortOpc').value);
       if (!host || !port) {
         alert('Please provide host and a single port (use Start Port).');
         return;
@@ -851,16 +919,37 @@
       btnHelloTest.textContent = 'Sending HEL...';
       try {
         const res = await window.electronAPI.opcHelloTest(host, port, `opc.tcp://${host}:${port}`);
+
+        // Ensure category header for uniform grouping
+        let helloHeader = document.getElementById('opcHelloSection');
+        if (!helloHeader) {
+          helloHeader = document.createElement('h4');
+          helloHeader.className = 'category-title';
+          helloHeader.id = 'opcHelloSection';
+          helloHeader.textContent = 'OPC UA Hello/ACK';
+          resultsList.insertBefore(helloHeader, resultsList.firstChild);
+        }
+
+        // Normalize status across tests
+        const status = res.ok ? 'open' : (res.error === 'timeout' ? 'timeout' : 'closed');
+
         const item = document.createElement('div');
-        const status = res.ok ? 'open' : 'closed';
         item.className = `result-item ${status}`;
         item.innerHTML = `
-          <strong>OPC UA Hello → ${host}:${port} - ${res.ok ? 'ACK RECEIVED' : 'FAILED'}</strong>
+          <strong>OPC UA Hello → ${host}:${port} - ${res.ok ? 'ACK RECEIVED' : (status === 'timeout' ? 'TIMEOUT' : 'FAILED')}</strong>
           <span>${res.message || ''}</span>
         `;
-        resultsList.insertBefore(item, resultsList.firstChild);
+        resultsList.insertBefore(item, helloHeader.nextSibling);
         resultsSection.classList.add('active');
-        alert(res.ok ? 'ACK received from remote endpoint.' : `HEL failed: ${res.message || res.error || 'unknown error'}`);
+
+        // Show log info if available
+        if (res.logFileName) {
+          logInfo.innerHTML = `
+            <strong>📄 Test Log Saved</strong>
+            Log file: ${res.logFileName}<br>
+            Location: Application logs folder
+          `;
+        }
       } catch (e) {
         alert('HEL test error: ' + e.message);
       } finally {
@@ -868,6 +957,19 @@
         btnHelloTest.textContent = 'OPC UA Hello/ACK Test (single port)';
       }
     });
+
+    // Tab Switching
+    function activateTab(tab) {
+      const isTcp = tab === 'tcp';
+      tabTcp.classList.toggle('active', isTcp);
+      tabOpc.classList.toggle('active', !isTcp);
+      tabTcp.setAttribute('aria-selected', String(isTcp));
+      tabOpc.setAttribute('aria-selected', String(!isTcp));
+      tcpPanel.classList.toggle('active', isTcp);
+      opcPanel.classList.toggle('active', !isTcp);
+    }
+    tabTcp.addEventListener('click', () => activateTab('tcp'));
+    tabOpc.addEventListener('click', () => activateTab('opc'));
 
     // About handlers
     function showAbout(version) {

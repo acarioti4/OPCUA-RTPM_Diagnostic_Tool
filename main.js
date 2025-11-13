@@ -148,12 +148,45 @@ ipcMain.handle('opc-hello-test', async (event, { host, port, endpointUrl } = {})
     const socket = new net.Socket();
     const timeoutMs = 4000;
     let settled = false;
+    const startedAt = Date.now();
 
     const finish = (payload) => {
       if (settled) return;
       settled = true;
       try { socket.destroy(); } catch {}
-      resolve(payload);
+      // Persist minimal log similar to other tests
+      try {
+        const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+        const logFileName = `opc-hello_${host}_${port}_${timestamp}.log`;
+        const logPath = path.join(logDir, logFileName);
+        const lines = [];
+        lines.push('='.repeat(80));
+        lines.push('OPC UA HELLO / ACK TEST');
+        lines.push('='.repeat(80));
+        lines.push(`When: ${new Date().toISOString()}`);
+        lines.push(`Target: ${host}:${port}`);
+        lines.push(`EndpointUrl: ${url}`);
+        lines.push(`DurationMs: ${Date.now() - startedAt}`);
+        lines.push(`Result: ${payload.ok ? 'ACK RECEIVED' : 'FAILED'}`);
+        if (payload.message) lines.push(`Message: ${payload.message}`);
+        if (payload.error) lines.push(`Error: ${payload.error}`);
+        if (payload.header) {
+          const h = payload.header;
+          lines.push('-'.repeat(80));
+          lines.push('ACK HEADER');
+          if (h.msgType) lines.push(`MsgType: ${h.msgType}`);
+          if (h.chunkType) lines.push(`ChunkType: ${h.chunkType}`);
+          if (h.protocolVersion !== undefined) lines.push(`ProtocolVersion: ${h.protocolVersion}`);
+          if (h.receiveBufferSize !== undefined) lines.push(`ReceiveBufferSize: ${h.receiveBufferSize}`);
+          if (h.sendBufferSize !== undefined) lines.push(`SendBufferSize: ${h.sendBufferSize}`);
+          if (h.maxMessageSize !== undefined) lines.push(`MaxMessageSize: ${h.maxMessageSize}`);
+          if (h.maxChunkCount !== undefined) lines.push(`MaxChunkCount: ${h.maxChunkCount}`);
+        }
+        fs.writeFileSync(logPath, lines.join('\n'));
+        resolve({ ...payload, logPath, logFileName });
+      } catch {
+        resolve(payload);
+      }
     };
 
     socket.setTimeout(timeoutMs);
