@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OPC UA to RTPM Callback Path Diagnostics</title>
+  <style>
+    :root {
+      --container-bg: #ffffff;
+      --text-primary: #333333;
+      --text-muted: #666666;
+      --results-bg: #f8f9fa;
+      --log-bg: #e7f3ff;
+      --log-border: #2196F3;
+      --accent: #667eea; /* single solid accent */
+      --bg: #f3f4f6;     /* single solid background */
+      --shadow-accent: rgba(102, 126, 234, 0.35); /* glow color */
+      /* Lightsaber colors */
+      --saber-blue: #2563eb;
+      --saber-green: #10b981;
+      --saber-red: #b91c1c;
+    }
+
+    /* Light: Jedi - Light Side */
+    .theme-light {
+      --container-bg: #d2b48c; /* Jedi Tunic Tan (form/container area) */
+      --text-primary: #1f2937; /* slate-800 */
+      --text-muted: #6b7280;   /* slate-500 */
+      --results-bg: #f3f4f6;   /* slate-100 */
+      --log-bg: #e6f4ff;       /* holocron glow */
+      --log-border: #60a5fa;   /* blue-400 */
+      --accent: #2563eb;       /* Jedi saber blue */
+      --bg: #4b3621;           /* Jedi Cloak Brown (window background) */
+      --shadow-accent: rgba(37, 99, 235, 0.35);
+    }
+
+    /* Dark: Darth Vader's Suit */
+    .theme-dark {
+      --container-bg: #1a1b1f; /* graphite armor */
+      --text-primary: #e5e7eb; /* imperial light */
+      --text-muted: #9ca3af;   /* muted steel */
+      --results-bg: #111215;   /* cockpit black */
+      --log-bg: #0d0e11;       /* deeper black */
+      --log-border: #ef4444;   /* sith red accent */
+      --accent: #b91c1c;       /* lightsaber crimson */
+      --bg: #0a0b0d;           /* void black */
+      --shadow-accent: rgba(185, 28, 28, 0.35);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: var(--bg);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    /* removed gradient animations to keep solid tones */
+
+    .container {
+      max-width: 850px;
+      margin: 0 auto;
+      background: var(--container-bg);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+
+    .header {
+      /* 50/50 blue (top) / green (bottom) split horizontally */
+      background: linear-gradient(180deg, var(--saber-blue) 0 50%, var(--saber-green) 50% 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+      position: relative;
+      /* white glow border plus existing accent glows */
+      box-shadow:
+        0 0 0 2px rgba(255,255,255,0.85) inset,
+        0 0 10px rgba(255,255,255,0.45) inset,
+        0 6px 20px var(--shadow-accent),
+        0 0 24px var(--shadow-accent);
+    }
+    body.theme-dark .header {
+      background: var(--accent);
+      color: var(--text-primary);
+    }
+    /* Jedi theme: subtle white glow along the gradient split line */
+    body.theme-light .header::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 1px;
+      transform: translateY(-0.5px);
+      background: rgba(255,255,255,0.9);
+      box-shadow:
+        0 0 6px rgba(255,255,255,0.9),
+        0 0 12px rgba(255,255,255,0.6);
+    }
+
+    .header h1 {
+      font-size: 24px;
+      margin-bottom: 5px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+    /* Ensure title/subtitle remain readable across gradients */
+    .header h1, .header p {
+      text-shadow: 0 1px 2px rgba(0,0,0,0.65);
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 2px solid rgba(0,0,0,0.06);
+      margin-bottom: 16px;
+    }
+    .tab-button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      font-weight: 700;
+      padding: 10px 14px;
+      border-radius: 8px 8px 0 0;
+      cursor: pointer;
+      transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .tab-button.active {
+      color: var(--text-primary);
+      background: var(--container-bg);
+      box-shadow: 0 -2px 0 0 var(--accent) inset, 0 4px 14px rgba(0,0,0,0.06);
+    }
+    .tab-panel {
+      display: none;
+    }
+    .tab-panel.active {
+      display: block;
+    }
+
+    .theme-toggle {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+    }
+
+    /* Settings dropdown */
+    .settings {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+    }
+    .settings details {
+      position: relative;
+    }
+    .settings summary {
+      list-style: none;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 12px;
+      border-radius: 9999px;
+      padding: 6px 12px;
+      background: rgba(255,255,255,0.85);
+      color: #111827;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      user-select: none;
+    }
+    .settings summary::-webkit-details-marker { display: none; }
+    .settings details[open] summary {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.16);
+    }
+    .settings .menu {
+      position: absolute;
+      margin-top: 8px;
+      min-width: 220px;
+      background: var(--container-bg);
+      color: var(--text-primary);
+      border-radius: 10px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.18);
+      border: 2px solid rgba(0,0,0,0.06);
+      padding: 10px;
+      z-index: 10;
+    }
+    .setting-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      padding: 8px 6px;
+      border-radius: 8px;
+    }
+    .setting-item:hover {
+      background: rgba(0,0,0,0.04);
+    }
+
+    .theme-chip {
+      border: none;
+      border-radius: 9999px;
+      padding: 6px 12px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      background: rgba(255,255,255,0.85);
+      color: #111827;
+    }
+
+    .theme-chip:hover {
+      transform: translateY(-1px);
+    }
+
+    .theme-chip.light.active {
+      background: var(--accent);
+      color: #ffffff;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.8) inset, 0 6px 20px var(--shadow-accent);
+    }
+
+    .theme-chip.dark.active {
+      background: var(--accent);
+      color: #e5e7eb;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.5) inset, 0 6px 20px rgba(0,0,0,0.35);
+    }
+
+    .content {
+      padding: 30px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .port-range {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12), 0 0 12px rgba(0,0,0,0), 0 0 0 1px rgba(255,255,255,0.04) inset;
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px var(--shadow-accent), 0 0 18px var(--shadow-accent);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Determinate progress (0–100%) shown below the button */
+    .run-progress {
+      margin-top: 16px;
+      display: none;
+    }
+    .progress-outer {
+      height: 18px;
+      background: rgba(0,0,0,0.15);
+      border-radius: 9999px;
+      overflow: hidden;
+      border: 2px solid rgba(255,255,255,0.35);
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.25);
+    }
+    .progress-inner {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, rgba(255,255,255,0.85), rgba(255,255,255,0.65));
+      box-shadow: 0 0 14px var(--shadow-accent);
+      transition: width 300ms ease;
+    }
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .current-task {
+      display: none;
+      margin-top: 6px;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+    /* Jedi theme: subtle glow on the gradient split already added above */
+
+    /* Button morphs into an inline progress bar while running */
+    .btn.progressing {
+      position: relative;
+      transform: none !important;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+      background: rgba(0,0,0,0.15);
+      color: transparent; /* hide label while progress is shown */
+    }
+    .btn.progressing:hover {
+      transform: none;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    }
+    .inline-progress {
+      height: 10px;
+      width: 100%;
+      background: rgba(255,255,255,0.28);
+      border-radius: 9999px;
+      overflow: hidden;
+    }
+    .inline-progress .bar {
+      position: relative;
+      height: 100%;
+      width: 40%;
+      left: -40%;
+      border-radius: 9999px;
+      background: linear-gradient(90deg, #ffffff, rgba(255,255,255,0.75));
+      box-shadow: 0 0 14px var(--shadow-accent);
+      animation: indeterminateSweep 1.2s ease-in-out infinite;
+    }
+    @keyframes indeterminateSweep {
+      0%   { left: -40%; width: 40%; }
+      50%  { left: 20%;  width: 60%; }
+      100% { left: 100%; width: 40%; }
+    }
+
+    .results-section {
+      margin-top: 30px;
+      display: none;
+    }
+
+    .results-section.active {
+      display: block;
+    }
+
+    .results-list {
+      background: var(--results-bg);
+      border-radius: 8px;
+      padding: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .result-item {
+      padding: 12px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+      border-left: 4px solid;
+      background: var(--container-bg);
+      animation: fadeSlideIn 300ms ease-out;
+    }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 3px solid rgba(0,0,0,0.12);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      display: inline-block;
+      animation: spin 0.8s linear infinite;
+      margin-left: 8px;
+      vertical-align: text-bottom;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .result-item.open { border-left-color: #28a745; }
+    .result-item.closed { border-left-color: #dc3545; }
+    .result-item.timeout { border-left-color: #ffc107; }
+    .result-item.warning { border-left-color: #ffc107; }
+
+    .result-item strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .result-item span {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .result-item.open strong, .result-item.open span { color: #28a745; }
+    .result-item.closed strong, .result-item.closed span { color: #dc3545; }
+    .result-item.timeout strong, .result-item.timeout span { color: #ffc107; }
+    .result-item.warning strong, .result-item.warning span { color: #ffc107; }
+
+    .log-info {
+      margin-top: 20px;
+      padding: 15px;
+      background: var(--log-bg);
+      border: 2px solid var(--log-border);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .log-info strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--accent);
+    }
+
+    /* About Modal */
+    .about-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 20px;
+    }
+    .about-overlay.active { display: flex; }
+    .about-modal {
+      background: var(--container-bg);
+      color: var(--text-primary);
+      border-radius: 12px;
+      padding: 24px;
+      width: min(480px, 90vw);
+      box-shadow: 0 16px 40px var(--shadow-accent, rgba(0,0,0,0.35));
+      border: 2px solid rgba(0,0,0,0.06);
+      position: relative;
+    }
+    .about-title { margin-bottom: 8px; font-size: 18px; font-weight: 800; letter-spacing: 0.3px; }
+    .about-body { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+    .about-meta { margin-top: 12px; padding-top: 12px; border-top: 2px dashed rgba(0,0,0,0.08); display: grid; row-gap: 6px; }
+    .about-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: transparent;
+      border: none;
+      font-size: 18px;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    .about-close:hover { color: var(--text-primary); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>OPC UA to RTPM Callback Path Diagnostics</h1>
+      <p>Connectivity and Callback Path Probe</p>
+      <div class="settings">
+        <details id="settingsMenu">
+          <summary>Settings</summary>
+          <div class="menu">
+            <label class="setting-item">
+              <input type="checkbox" id="toggleShowTask">
+              Show Current Task
+            </label>
+          </div>
+        </details>
+      </div>
+      <div class="theme-toggle">
+        <button type="button" id="btnLight" class="theme-chip light">Jedi</button>
+        <button type="button" id="btnDark" class="theme-chip dark">Sith</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="tabs" role="tablist" aria-label="Diagnostics">
+        <button class="tab-button active" disabled>Callback Path Probe</button>
+      </div>
+
+      <form id="probeForm">
+        <div class="form-group">
+          <label for="endpointUrl">OPC UA Endpoint URL</label>
+          <input
+            type="text"
+            id="endpointUrl"
+            placeholder="e.g., opc.tcp://192.168.1.50:4840"
+            value="opc.tcp://127.0.0.1:4840"
+            required
+          >
+        </div>
+        <div class="port-range">
+          <div class="form-group">
+            <label for="systemBHost">System B IP (optional, for SYN filter)</label>
+            <input
+              type="text"
+              id="systemBHost"
+              placeholder="e.g., 192.168.1.60"
+              pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
+            >
+          </div>
+          <div class="form-group">
+            <label for="synSeconds">SYN Monitor Seconds</label>
+            <input
+              type="number"
+              id="synSeconds"
+              min="0"
+              max="120"
+              value="10"
+              required
+            >
+          </div>
+        </div>
+        <div class="port-range">
+          <div class="form-group">
+            <label for="nodeId">Monitored NodeId (optional)</label>
+            <input
+              type="text"
+              id="nodeId"
+              placeholder="ns=0;i=2258 (ServerStatus_CurrentTime)"
+            >
+          </div>
+          <div class="form-group">
+            <label for="pubInterval">Publishing Interval (ms)</label>
+            <input
+              type="number"
+              id="pubInterval"
+              min="50"
+              max="10000"
+              value="250"
+              required
+            >
+          </div>
+        </div>
+        <button type="submit" class="btn" id="btnRunProbe">Run Callback Path Probe</button>
+        <div class="run-progress" id="runProgress" aria-hidden="true">
+          <div class="progress-outer" aria-label="Probe progress">
+            <div class="progress-inner" id="progressInner"></div>
+          </div>
+          <div class="progress-meta">
+            <span id="progressLabel">Preparing…</span>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div class="current-task" id="currentTaskWrapper">
+            <span id="currentTaskText">Ready</span>
+          </div>
+        </div>
+      </form>
+
+      <div class="results-section" id="resultsSection">
+        <div class="results-list" id="resultsList"></div>
+        <div class="log-info" id="logInfo"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- About Modal -->
+  <div class="about-overlay" id="aboutOverlay" aria-hidden="true">
+    <div class="about-modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+      <button class="about-close" id="aboutClose" aria-label="Close About">&times;</button>
+      <div class="about-title" id="aboutTitle">About</div>
+      <div class="about-body">
+        <div class="about-meta">
+          <div><strong>Version:</strong> <span id="aboutVersion">-</span></div>
+          <div>2025</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const btnLight = document.getElementById('btnLight');
+    const btnDark = document.getElementById('btnDark');
+    const aboutOverlay = document.getElementById('aboutOverlay');
+    const aboutClose = document.getElementById('aboutClose');
+    const aboutVersion = document.getElementById('aboutVersion');
+    const resultsSection = document.getElementById('resultsSection');
+    const resultsList = document.getElementById('resultsList');
+    const logInfo = document.getElementById('logInfo');
+    const probeForm = document.getElementById('probeForm');
+    const btnRunProbe = document.getElementById('btnRunProbe');
+    const runProgress = document.getElementById('runProgress');
+    const progressInner = document.getElementById('progressInner');
+    const progressLabel = document.getElementById('progressLabel');
+    const progressPercent = document.getElementById('progressPercent');
+    const currentTaskWrapper = document.getElementById('currentTaskWrapper');
+    const currentTaskText = document.getElementById('currentTaskText');
+    const toggleShowTask = document.getElementById('toggleShowTask');
+
+    // Theme handling
+    function setActiveChip(theme) {
+      btnLight.classList.toggle('active', theme === 'light');
+      btnDark.classList.toggle('active', theme === 'dark');
+    }
+    function applyTheme(theme) {
+      document.body.classList.remove('theme-light', 'theme-dark');
+      if (theme === 'dark') {
+        document.body.classList.add('theme-dark');
+      } else {
+        document.body.classList.add('theme-light');
+        theme = 'light';
+      }
+      setActiveChip(theme);
+      localStorage.setItem('opcRtpmTheme', theme);
+    }
+    const savedThemeRaw = localStorage.getItem('opcRtpmTheme') || 'light';
+    const savedTheme = savedThemeRaw === 'matrix' ? 'dark' : savedThemeRaw;
+    applyTheme(savedTheme);
+    btnLight.addEventListener('click', () => applyTheme('light'));
+    btnDark.addEventListener('click', () => applyTheme('dark'));
+
+    // Settings: Show Current Task toggle
+    const savedShowTask = localStorage.getItem('opcRtpmShowTask') === 'true';
+    if (toggleShowTask) {
+      toggleShowTask.checked = savedShowTask;
+    }
+    function applyShowTaskSetting(enabled) {
+      localStorage.setItem('opcRtpmShowTask', enabled ? 'true' : 'false');
+      currentTaskWrapper.style.display = enabled ? 'block' : 'none';
+    }
+    applyShowTaskSetting(savedShowTask);
+    if (toggleShowTask) {
+      toggleShowTask.addEventListener('change', (e) => {
+        applyShowTaskSetting(!!e.target.checked);
+      });
+    }
+
+    // Progress helpers
+    let progressTimer = null;
+    let progressValue = 0;
+    function setProgress(value, label) {
+      progressValue = Math.max(0, Math.min(100, Math.floor(value)));
+      if (progressInner) progressInner.style.width = progressValue + '%';
+      if (progressPercent) progressPercent.textContent = progressValue + '%';
+      if (label && progressLabel) progressLabel.textContent = label;
+    }
+    function setCurrentTask(text) {
+      if (currentTaskText) currentTaskText.textContent = text || '';
+    }
+    function startFakeProgress() {
+      setProgress(0, 'Starting…');
+      setCurrentTask('Initializing probe…');
+      if (runProgress) {
+        runProgress.style.display = 'block';
+        runProgress.setAttribute('aria-hidden', 'false');
+      }
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = setInterval(() => {
+        // advance slowly up to 90% to indicate activity
+        if (progressValue < 90) {
+          setProgress(progressValue + 2, 'Running…');
+        }
+      }, 500);
+    }
+    function finishProgress(success) {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      setProgress(100, success ? 'Completed' : 'Failed');
+      setCurrentTask(success ? 'Completed.' : 'Failed.');
+    }
+
+    // About handlers
+    function showAbout(version) {
+      if (aboutVersion) aboutVersion.textContent = version || '';
+      aboutOverlay.classList.add('active');
+      aboutOverlay.setAttribute('aria-hidden', 'false');
+    }
+    function hideAbout() {
+      aboutOverlay.classList.remove('active');
+      aboutOverlay.setAttribute('aria-hidden', 'true');
+    }
+    if (window.electronAPI && window.electronAPI.onShowAbout) {
+      window.electronAPI.onShowAbout(({ version } = {}) => {
+        showAbout(version);
+      });
+    }
+    aboutClose.addEventListener('click', hideAbout);
+    aboutOverlay.addEventListener('click', (e) => {
+      if (e.target === aboutOverlay) hideAbout();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && aboutOverlay.classList.contains('active')) {
+        hideAbout();
+      }
+    });
+
+    function ensureSection(id, titleText) {
+      let header = document.getElementById(id);
+      if (!header) {
+        header = document.createElement('h4');
+        header.className = 'category-title';
+        header.id = id;
+        header.textContent = titleText;
+        resultsList.insertBefore(header, resultsList.firstChild);
+      }
+      return header;
+    }
+    function prependItem(sectionHeader, status, title, detail) {
+      const item = document.createElement('div');
+      item.className = `result-item ${status}`;
+      item.innerHTML = `
+        <strong>${title}</strong>
+        <span>${detail}</span>
+      `;
+      resultsList.insertBefore(item, sectionHeader.nextSibling);
+      resultsSection.classList.add('active');
+    }
+
+    probeForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      // morph button into a progress bar
+      if (!btnRunProbe.dataset.originalLabel) {
+        btnRunProbe.dataset.originalLabel = btnRunProbe.textContent || 'Run';
+      }
+      btnRunProbe.disabled = true;
+      btnRunProbe.classList.add('progressing');
+      btnRunProbe.setAttribute('aria-busy', 'true');
+      btnRunProbe.innerHTML = '<div class="inline-progress" role="progressbar" aria-label="Running"><div class="bar"></div></div>';
+
+      // show determinate progress bar
+      startFakeProgress();
+
+      resultsList.innerHTML = '';
+      logInfo.textContent = '';
+      resultsSection.classList.remove('active');
+      try {
+        const endpointUrl = document.getElementById('endpointUrl').value.trim();
+        const systemBHost = document.getElementById('systemBHost').value.trim();
+        const synSeconds = parseInt(document.getElementById('synSeconds').value) || 0;
+        const nodeId = document.getElementById('nodeId').value.trim();
+        const pubInterval = parseInt(document.getElementById('pubInterval').value) || 250;
+        const params = {
+          endpointUrl,
+          systemBHost: systemBHost || undefined,
+          synMonitorSeconds: synSeconds,
+          publishIntervalMs: pubInterval
+        };
+        if (nodeId) params.nodeId = nodeId;
+
+        const res = await window.electronAPI.runOpcuaProbe(params);
+        const { probe, logFileName } = res || {};
+
+        // Client callback info
+        const cbSec = ensureSection('clientInfoSection', 'Client Callback Info');
+        if (probe && probe.clientSocket) {
+          prependItem(cbSec, 'open', 'Client local socket', `${probe.clientSocket.localAddress}:${probe.clientSocket.localPort}`);
+          prependItem(cbSec, 'open', 'Server peer', `${probe.clientSocket.remoteAddress}:${probe.clientSocket.remotePort}`);
+        } else {
+          prependItem(cbSec, 'warning', 'Client local socket', 'Unavailable');
+        }
+
+        // Network interfaces
+        const ifSec = ensureSection('interfacesSection', 'System A Network Interfaces');
+        if (probe && probe.adapters && probe.adapters.length) {
+          probe.adapters.forEach(a => {
+            const addrs = (a.addresses || []).map(x => x.address).join(', ');
+            prependItem(ifSec, 'open', a.name, addrs || '(no IPv4)');
+          });
+        } else {
+          prependItem(ifSec, 'warning', 'No adapters found', '');
+        }
+
+        // Listeners before/after
+        const lsSec = ensureSection('listenersSection', 'Process Listening Ports');
+        const before = (probe && probe.listenersBefore) || [];
+        if (!before.length) {
+          prependItem(lsSec, 'warning', 'Before subscription', '(none)');
+        } else {
+          before.forEach(l => prependItem(lsSec, 'open', 'Before', `${l.localAddress}:${l.localPort} pid=${l.pid}`));
+        }
+        const after = (probe && probe.listenersAfter) || [];
+        if (!after.length) {
+          prependItem(lsSec, 'warning', 'After subscription', '(none)');
+        } else {
+          after.forEach(l => prependItem(lsSec, 'open', 'After', `${l.localAddress}:${l.localPort} pid=${l.pid}`));
+        }
+
+        // SYN monitor
+        if (probe && probe.synMonitor && probe.synMonitor.enabled) {
+          const synSec = ensureSection('synSection', 'Connection Attempt Logger');
+          const m = probe.synMonitor.method || 'none';
+          if (!probe.synMonitor.events || !probe.synMonitor.events.length) {
+            prependItem(synSec, 'warning', `Method: ${m}`, 'No SYN attempts captured');
+          } else {
+            prependItem(synSec, 'open', `Method: ${m}`, `${probe.synMonitor.events.length} event(s)`);
+            probe.synMonitor.events.forEach(ev => {
+              prependItem(synSec, 'open', `[${ev.timestamp}]`, `${ev.src}:${ev.srcPort} -> ${ev.dst}:${ev.dstPort} syn=${ev.syn} ack=${ev.ack ? '1' : '0'}`);
+            });
+          }
+        }
+
+        // Log info
+        if (res && res.logFileName) {
+          logInfo.innerHTML = `
+            <strong>📄 Probe Log Saved</strong>
+            Log file: ${res.logFileName}<br>
+            Location: Application logs folder
+          `;
+        }
+        // hint user-level task messages (human legible only)
+        setCurrentTask('Connecting to server…');
+
+      } catch (err) {
+        alert('Probe error: ' + (err && err.message ? err.message : String(err)));
+        finishProgress(false);
+      } finally {
+        btnRunProbe.disabled = false;
+        btnRunProbe.classList.remove('progressing');
+        btnRunProbe.removeAttribute('aria-busy');
+        btnRunProbe.textContent = btnRunProbe.dataset.originalLabel || 'Run Callback Path Probe';
+        // finalize progress
+        if (!progressTimer) {
+          // already finished due to error
+        } else {
+          finishProgress(true);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
+

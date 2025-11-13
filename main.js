@@ -5,10 +5,24 @@ const net = require('net');
 const fs = require('fs');
 const { exec } = require('child_process');
 const os = require('os');
-const { ensureLogDir, generateLogContent } = require('./logs');
-const { testPort, testPortsConcurrent } = require('./portScan');
-const { createHelloBuffer, parseAckHeader } = require('./opcuaHello');
-const { parseConnectionsByLocalPort, parseNetstatForTarget, parseListeningPorts, pidToNameMap } = require('./netstat');
+let opcua = null;
+try {
+  // Lazy require to avoid hard failure if not installed yet
+  // eslint-disable-next-line global-require
+  opcua = require('node-opcua');
+} catch {
+  opcua = null;
+}
+let CapLib = null;
+try {
+  // Optional dependency
+  // eslint-disable-next-line global-require
+  CapLib = require('cap');
+} catch {
+  CapLib = null;
+}
+const { ensureLogDir } = require('./logs');
+const { parseListeningPorts } = require('./netstat');
 
 let mainWindow;
 
@@ -23,7 +37,7 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile('UI.html');
+  mainWindow.loadFile('index.html');
 
   // Build application menu with Help > About
   const template = [
@@ -95,158 +109,24 @@ app.on('activate', () => {
 // Ensure log directory exists
 const logDir = ensureLogDir();
 
-// Handle port testing request
-ipcMain.handle('test-ports', async (event, { host, startPort, endPort, concurrency }) => {
-  const results = await testPortsConcurrent(
-    host, 
-    startPort, 
-    endPort, 
-    Math.max(1, Math.min(Number(concurrency) || 100, 500)), 
-    (progress) => {
-      event.sender.send('test-progress', progress);
-    }
-  );
-
-  // Generate log
-  const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-  const logFileName = `tcp-test_${host}_${timestamp}.log`;
-  const logPath = path.join(logDir, logFileName);
-
-  const logContent = generateLogContent(host, startPort, endPort, results);
-  fs.writeFileSync(logPath, logContent);
-
-  return {
-    results,
-    logPath,
-    logFileName
-  };
-});
-
-// Enumerate local TCP listeners with PID→process mapping (optionally filter by ports)
-ipcMain.handle('list-listeners', async (event, { filterPorts = [] } = {}) => {
-  const cmd = 'netstat -ano -p tcp';
+// ----------------------------
+// Helper utilities (Diagnostics)
+// ----------------------------
+async function listProcessListeners() {
   return new Promise((resolve) => {
-    exec(cmd, { windowsHide: true }, async (err, stdout) => {
+    exec('netstat -ano -p tcp', { windowsHide: true }, (err, stdout) => {
       if (err) {
-        resolve({ listeners: [], error: err.message });
+        resolve([]);
         return;
       }
-      let listeners = parseListeningPorts(stdout);
-      if (Array.isArray(filterPorts) && filterPorts.length) {
-        const set = new Set(filterPorts.map((p) => Number(p)));
-        listeners = listeners.filter((l) => set.has(Number(l.localPort)));
-      }
-      const pidMap = await pidToNameMap(listeners.map(l => l.pid));
-      listeners.forEach(l => { l.process = pidMap[l.pid] || ''; });
-      resolve({ listeners });
+      const listeners = parseListeningPorts(stdout);
+      const myPid = String(process.pid);
+      resolve(listeners.filter(l => String(l.pid) === myPid));
     });
   });
-});
+}
 
-// Check Windows Firewall inbound rules for a specific TCP port
-ipcMain.handle('check-firewall', async (event, { port } = {}) => {
-  if (!port) {
-    throw new Error('port is required');
-  }
-  // Try PowerShell (preferred)
-  const psCmd = [
-    'powershell',
-    '-NoProfile',
-    '-Command',
-    `"try {`,
-    `$p=${Number(port)};`,
-    `$filters = Get-NetFirewallPortFilter -Protocol TCP | Where-Object { $_.LocalPort -eq $p -or $_.LocalPort -eq '$p' };`,
-    `$rules = foreach ($f in $filters) { Get-NetFirewallRule -AssociatedNetFirewallPortFilter $f | Where-Object { $_.Direction -eq 'Inbound' } };`,
-    `$rules | Select-Object DisplayName, Enabled, Action, Profile, Direction | ConvertTo-Json -Depth 3`,
-    `} catch { '' }"`,
-  ].join(' ');
-  function parseNetshBlocks(text, targetPort) {
-    const blocks = text.split(/\r?\n\s*-\s*+\r?\n/i); // not always present; fallback to "Rule Name:" separators
-    const lines = text.split(/\r?\n/);
-    const result = [];
-    let current = null;
-    for (const line of lines) {
-      const nameMatch = /^\s*Rule Name:\s*(.+)\s*$/i.exec(line);
-      if (nameMatch) {
-        if (current) result.push(current);
-        current = { name: nameMatch[1], lines: [] };
-        continue;
-      }
-      if (current) {
-        current.lines.push(line);
-      }
-    }
-    if (current) result.push(current);
-    const matches = [];
-    for (const b of result) {
-      const textBlock = b.lines.join('\n');
-      const hasInbound = /Direction:\s*In\b/i.test(textBlock);
-      const hasEnabled = /Enabled:\s*Yes/i.test(textBlock);
-      const hasAllow = /Action:\s*Allow/i.test(textBlock);
-      const hasTcp = /Protocol:\s*TCP/i.test(textBlock) || /Protocol:\s*Any/i.test(textBlock);
-      const ports = [];
-      const portMatch = /LocalPort:\s*([^\r\n]+)/i.exec(textBlock);
-      if (portMatch) {
-        const val = portMatch[1].trim();
-        if (val.toLowerCase() === 'any') {
-          ports.push('any');
-        } else {
-          val.split(',').map(s => s.trim()).forEach(v => ports.push(v));
-        }
-      }
-      const portOk = ports.includes('any') || ports.includes(String(targetPort));
-      if (hasInbound && hasEnabled && hasAllow && hasTcp && portOk) {
-        matches.push({ displayName: b.name, enabled: true, action: 'Allow', direction: 'Inbound' });
-      }
-    }
-    return matches;
-  }
-  return new Promise((resolve) => {
-    exec(psCmd, { windowsHide: true }, (psErr, psStdout) => {
-      if (!psErr && psStdout && psStdout.trim().startsWith('[')) {
-        try {
-          const parsed = JSON.parse(psStdout);
-          const arr = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
-          resolve({ ok: true, source: 'powershell', rules: arr });
-          return;
-        } catch {
-          // fall through to netsh
-        }
-      }
-      // Fallback to netsh (text parsing)
-      const netshCmd = 'netsh advfirewall firewall show rule name=all dir=in verbose';
-      exec(netshCmd, { windowsHide: true, maxBuffer: 1024 * 1024 * 8 }, (nErr, nStdout) => {
-        if (nErr) {
-          resolve({ ok: false, source: 'netsh', error: nErr.message, rules: [] });
-          return;
-        }
-        const matches = parseNetshBlocks(nStdout || '', Number(port));
-        resolve({ ok: true, source: 'netsh', rules: matches });
-      });
-    });
-  });
-});
-
-// Add Windows Firewall inbound allow rule for a TCP port
-ipcMain.handle('add-firewall-rule', async (event, { port, name } = {}) => {
-  if (!port) {
-    throw new Error('port is required');
-  }
-  const ruleName = name || `OPC UA Allow TCP ${port}`;
-  const cmd = `netsh advfirewall firewall add rule name="${ruleName.replace(/"/g, '')}" dir=in action=allow protocol=TCP localport=${Number(port)}`;
-  return new Promise((resolve) => {
-    exec(cmd, { windowsHide: true }, (err, stdout, stderr) => {
-      if (err) {
-        resolve({ ok: false, error: err.message, stdout, stderr });
-      } else {
-        resolve({ ok: true, stdout });
-      }
-    });
-  });
-});
-
-// List local network adapters and IPv4 addresses
-ipcMain.handle('list-adapters', async () => {
+function listNetworkInterfaces() {
   const ifaces = os.networkInterfaces();
   const adapters = [];
   for (const [name, entries] of Object.entries(ifaces)) {
@@ -262,291 +142,333 @@ ipcMain.handle('list-adapters', async () => {
       adapters.push({ name, addresses: ipv4s });
     }
   }
-  return { adapters };
-});
+  return adapters;
+}
 
-// Detect active client connections to local OPC UA Server port (e.g., Kepware 4840)
-ipcMain.handle('detect-service', async (event, { serverPort = 4840 } = {}) => {
-  // Windows netstat output
-  const cmd = 'netstat -ano -p tcp';
-  return new Promise((resolve) => {
-    exec(cmd, { windowsHide: true }, (err, stdout) => {
-      if (err) {
-        resolve({ connections: [], error: err.message });
-        return;
-      }
-      const connections = parseConnectionsByLocalPort(stdout, serverPort);
-      resolve({ connections });
-    });
-  });
-});
-
-// Send minimal OPC UA TCP Hello and await Acknowledge (ACK)
-ipcMain.handle('opc-hello-test', async (event, { host, port, endpointUrl } = {}) => {
-  if (!host || !port) {
-    throw new Error('host and port are required');
-  }
-  const url = endpointUrl || `opc.tcp://${host}:${port}`;
-
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    const timeoutMs = 4000;
-    let settled = false;
-    const startedAt = Date.now();
-
-    const finish = (payload) => {
-      if (settled) return;
-      settled = true;
-      try { socket.destroy(); } catch {}
-      // Persist minimal log similar to other tests
-      try {
-        const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-        const logFileName = `opc-hello_${host}_${port}_${timestamp}.log`;
-        const logPath = path.join(logDir, logFileName);
-        const lines = [];
-        lines.push('='.repeat(80));
-        lines.push('OPC UA HELLO / ACK TEST');
-        lines.push('='.repeat(80));
-        lines.push(`When: ${new Date().toISOString()}`);
-        lines.push(`Target: ${host}:${port}`);
-        lines.push(`EndpointUrl: ${url}`);
-        lines.push(`DurationMs: ${Date.now() - startedAt}`);
-        lines.push(`Result: ${payload.ok ? 'ACK RECEIVED' : 'FAILED'}`);
-        if (payload.message) lines.push(`Message: ${payload.message}`);
-        if (payload.error) lines.push(`Error: ${payload.error}`);
-        if (payload.header) {
-          const h = payload.header;
-          lines.push('-'.repeat(80));
-          lines.push('ACK HEADER');
-          if (h.msgType) lines.push(`MsgType: ${h.msgType}`);
-          if (h.chunkType) lines.push(`ChunkType: ${h.chunkType}`);
-          if (h.protocolVersion !== undefined) lines.push(`ProtocolVersion: ${h.protocolVersion}`);
-          if (h.receiveBufferSize !== undefined) lines.push(`ReceiveBufferSize: ${h.receiveBufferSize}`);
-          if (h.sendBufferSize !== undefined) lines.push(`SendBufferSize: ${h.sendBufferSize}`);
-          if (h.maxMessageSize !== undefined) lines.push(`MaxMessageSize: ${h.maxMessageSize}`);
-          if (h.maxChunkCount !== undefined) lines.push(`MaxChunkCount: ${h.maxChunkCount}`);
-        }
-        fs.writeFileSync(logPath, lines.join('\n'));
-        resolve({ ...payload, logPath, logFileName });
-      } catch {
-        resolve(payload);
-      }
-    };
-
-    socket.setTimeout(timeoutMs);
-    socket.once('timeout', () => finish({ ok: false, error: 'timeout', message: 'Timeout waiting for ACK' }));
-    socket.once('error', (err) => finish({ ok: false, error: err.code || 'error', message: err.message }));
-
-    socket.connect(Number(port), host, () => {
-      const hello = createHelloBuffer(url);
-      socket.write(hello);
-    });
-
-    socket.once('data', (data) => {
-      const h = parseAckHeader(data);
-      if (h.msgType === 'ACK' && h.chunkType === 'F') {
-        finish({ ok: true, message: 'Received OPC UA Acknowledge (ACK)', header: h });
-      } else if (h.msgType === 'ERR') {
-        finish({ ok: false, error: 'OPC-UA-ERROR', message: 'Received OPC UA ERR response', header: h });
-      } else {
-        finish({ ok: false, error: 'unexpected', message: `Unexpected response: ${h.msgType || 'unknown'}`, header: h });
-      }
-    });
-  });
-});
-
-// Generic TCP connect + optional payload send + optional response read
-ipcMain.handle('tcp-send-test', async (event, {
-  host,
-  port,
-  payload = '',
-  encoding = 'text', // 'text' | 'hex'
-  expectResponse = true,
-  readTimeoutMs = 3000,
-  maxBytes = 4096
-} = {}) => {
-  if (!host || !port) {
-    throw new Error('host and port are required');
-  }
-
-  function makeBuffer(data, enc) {
-    if (!data) return Buffer.alloc(0);
-    if (enc === 'hex') {
-      return Buffer.from(data.replace(/\s+/g, ''), 'hex');
+function getClientSocketInfo(client) {
+  try {
+    const secureChannel = client && client._secureChannel; // internal
+    const transport = secureChannel && secureChannel.transport;
+    const socket = transport && transport._socket;
+    if (socket && typeof socket.address === 'function') {
+      const local = socket.address(); // { address, family, port }
+      const remoteAddress = socket.remoteAddress;
+      const remotePort = socket.remotePort;
+      return {
+        localAddress: local.address,
+        localPort: local.port,
+        remoteAddress,
+        remotePort
+      };
     }
-    return Buffer.from(String(data), 'utf8');
+  } catch {
+    // ignore
   }
+  return null;
+}
 
+async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts = [], sourceHost }) {
+  const events = [];
   const startTs = Date.now();
-  const txBuffer = makeBuffer(payload, encoding);
+  const endTs = startTs + Math.max(1000, durationSeconds * 1000);
 
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    let timer = null;
-    let received = Buffer.alloc(0);
-    let connectedAt = null;
-
-    const finalize = (res) => {
-      try { if (timer) clearTimeout(timer); } catch {}
-      try { socket.destroy(); } catch {}
-
-      // Persist log
-      const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-      const logFileName = `tcp-send_${host}_${port}_${timestamp}.log`;
-      const logPath = path.join(logDir, logFileName);
-
-      const lines = [];
-      lines.push('='.repeat(80));
-      lines.push('MY SERVICE TCP LISTENER TEST');
-      lines.push('='.repeat(80));
-      lines.push(`When: ${new Date().toISOString()}`);
-      lines.push(`Target: ${host}:${port}`);
-      lines.push(`Connected: ${res.connected ? 'yes' : 'no'}`);
-      lines.push(`ConnectMs: ${res.connectMs ?? 'n/a'}`);
-      lines.push(`SentBytes: ${res.sentBytes}`);
-      lines.push(`ExpectResponse: ${expectResponse}`);
-      lines.push(`ReceivedBytes: ${res.receivedBytes}`);
-      if (res.responseHex) lines.push(`ResponseHex: ${res.responseHex}`);
-      if (res.responseText) lines.push(`ResponseText: ${res.responseText}`);
-      if (res.error) lines.push(`Error: ${res.error}`);
-      fs.writeFileSync(logPath, lines.join('\n'));
-
-      resolve({ ...res, logPath, logFileName });
-    };
-
-    const onTimeout = () => {
-      finalize({
-        ok: txBuffer.length === 0 ? true : true,
-        connected: Boolean(connectedAt),
-        connectMs: connectedAt ? (connectedAt - startTs) : undefined,
-        sentBytes: txBuffer.length,
-        receivedBytes: received.length,
-        responseHex: received.length ? received.toString('hex') : '',
-        responseText: received.length ? received.toString('utf8') : '',
-        message: 'Completed with timeout while waiting for response'
-      });
-    };
-
-    socket.setTimeout(Math.max(1000, readTimeoutMs));
-    socket.once('timeout', onTimeout);
-
-    socket.once('error', (err) => {
-      finalize({
-        ok: false,
-        connected: Boolean(connectedAt),
-        connectMs: connectedAt ? (connectedAt - startTs) : undefined,
-        sentBytes: txBuffer.length,
-        receivedBytes: received.length,
-        responseHex: received.length ? received.toString('hex') : '',
-        responseText: received.length ? received.toString('utf8') : '',
-        error: err.code || err.message
-      });
-    });
-
-    socket.connect(Number(port), host, () => {
-      connectedAt = Date.now();
-      socket.setNoDelay(true);
-      if (txBuffer.length) {
-        socket.write(txBuffer);
-      }
-      if (!expectResponse) {
-        timer = setTimeout(() => {
-          finalize({
-            ok: true,
-            connected: true,
-            connectMs: connectedAt - startTs,
-            sentBytes: txBuffer.length,
-            receivedBytes: 0,
-            responseHex: '',
-            responseText: '',
-            message: 'Sent without waiting for response'
-          });
-        }, Math.max(200, readTimeoutMs));
-      }
-    });
-
-    socket.on('data', (chunk) => {
-      if (!expectResponse) return;
-      received = Buffer.concat([received, chunk]);
-      if (received.length >= maxBytes) {
-        finalize({
-          ok: true,
-          connected: true,
-          connectMs: connectedAt ? (connectedAt - startTs) : undefined,
-          sentBytes: txBuffer.length,
-          receivedBytes: received.length,
-          responseHex: received.toString('hex'),
-          responseText: received.toString('utf8'),
-          message: 'Received max bytes'
+  // Preferred: packet capture if available
+  if (CapLib && localIp && Array.isArray(targetPorts) && targetPorts.length) {
+    try {
+      const { Cap, decoders } = CapLib;
+      const device = Cap.findDevice(localIp);
+      if (device) {
+        const cap = new Cap();
+        const buffer = Buffer.allocUnsafe(65536);
+        const filterParts = [];
+        filterParts.push('tcp');
+        if (targetPorts.length === 1) {
+          filterParts.push(`dst port ${Number(targetPorts[0])}`);
+        } else if (targetPorts.length > 1) {
+          // BPF doesn't support simple array; use or-chaining
+          filterParts.push('(' + targetPorts.map(p => `dst port ${Number(p)}`).join(' or ') + ')');
+        }
+        if (sourceHost) {
+          filterParts.push(`src host ${sourceHost}`);
+        }
+        // SYN packets (no ACK)
+        filterParts.push('(tcp[13] & 0x02 != 0)'); // SYN flag set
+        const filter = filterParts.join(' and ');
+        const linkType = cap.open(device, filter, 10 * 1024 * 1024, buffer);
+        if (cap.setMinBytes) cap.setMinBytes(0);
+        await new Promise((resolve) => {
+          const onPacket = (nbytes, trunc) => {
+            try {
+              if (linkType === 'ETHERNET') {
+                const eth = decoders.Ethernet(buffer);
+                if (eth.info.type === decoders.PROTOCOL.ETHERNET.IPV4) {
+                  const ipv4 = decoders.IPV4(buffer, eth.offset);
+                  if (ipv4.info.protocol === decoders.PROTOCOL.IP.TCP) {
+                    const tcp = decoders.TCP(buffer, ipv4.offset);
+                    const ts = new Date().toISOString();
+                    events.push({
+                      timestamp: ts,
+                      src: ipv4.info.srcaddr,
+                      dst: ipv4.info.dstaddr,
+                      srcPort: tcp.info.srcport,
+                      dstPort: tcp.info.dstport,
+                      syn: true,
+                      ack: (tcp.info.flags & 0x10) !== 0,
+                      trunc
+                    });
+                  }
+                }
+              }
+            } catch {
+              // ignore decode errors
+            }
+            if (Date.now() >= endTs) {
+              try { cap.close(); } catch {}
+              resolve();
+            }
+          };
+          cap.on('packet', onPacket);
+          const timer = setInterval(() => {
+            if (Date.now() >= endTs) {
+              clearInterval(timer);
+              try { cap.close(); } catch {}
+              resolve();
+            }
+          }, 200);
         });
-      } else {
-        // refresh timeout window
-        try { if (timer) clearTimeout(timer); } catch {}
-        timer = setTimeout(onTimeout, Math.max(200, readTimeoutMs));
+        return { method: 'pcap', events };
       }
-    });
-  });
-});
-
-// Monitor outbound TCP connections to a specific remote host:port for a short window
-ipcMain.handle('monitor-outbound', async (event, {
-  remoteHost,
-  remotePort,
-  durationSeconds = 10,
-  intervalMs = 1000
-} = {}) => {
-  if (!remoteHost || !remotePort) {
-    throw new Error('remoteHost and remotePort are required');
+    } catch {
+      // fall through to netstat polling
+    }
   }
-  const samples = [];
-  const started = Date.now();
 
-  async function snapshot() {
-    return new Promise((resolve) => {
-      exec('netstat -ano -p tcp', { windowsHide: true }, async (err, stdout) => {
-        if (err) return resolve({ timestamp: Date.now(), connections: [] });
-        const conns = parseNetstatForTarget(stdout, remoteHost, remotePort);
-        const pidMap = await pidToNameMap(conns.map(c => c.pid));
-        conns.forEach(c => { c.process = pidMap[c.pid] || ''; });
-        resolve({ timestamp: Date.now(), connections: conns });
+  // Fallback: poll netstat for SYN-RECEIVED entries (limited visibility)
+  const intervalMs = 500;
+  while (Date.now() < endTs) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, intervalMs));
+    // eslint-disable-next-line no-await-in-loop
+    const snapshot = await new Promise((resolve) => {
+      exec('netstat -ano -p tcp', { windowsHide: true }, (err, stdout) => {
+        if (err) {
+          resolve([]);
+          return;
+        }
+        const lines = String(stdout || '').split(/\r?\n/);
+        const matches = [];
+        for (const line of lines) {
+          // Proto  Local Address          Foreign Address        State           PID
+          const m = /^\s*TCP\s+(\S+):(\d+)\s+(\S+):(\d+)\s+(\S+)/i.exec(line);
+          if (!m) continue;
+          const localAddr = m[1];
+          const localPort = Number(m[2]);
+          const remoteAddr = m[3];
+          const remotePort = Number(m[4]);
+          const state = m[5];
+          if (targetPorts.length && !targetPorts.includes(localPort)) continue;
+          if (localIp && localAddr !== localIp && localAddr !== '0.0.0.0') continue;
+          if (sourceHost && remoteAddr !== sourceHost) continue;
+          if (/SYN/i.test(state)) {
+            matches.push({ localAddr, localPort, remoteAddr, remotePort, state });
+          }
+        }
+        resolve(matches);
       });
     });
+    if (snapshot.length) {
+      const ts = new Date().toISOString();
+      snapshot.forEach(s => events.push({
+        timestamp: ts,
+        src: s.remoteAddr,
+        dst: s.localAddr,
+        srcPort: s.remotePort,
+        dstPort: s.localPort,
+        syn: true,
+        ack: false,
+        method: 'netstat'
+      }));
+    }
+  }
+  return { method: 'netstat', events };
+}
+
+// ---------------------------------------------------------
+// New Diagnostics per ReadMe: Callback path verification
+// ---------------------------------------------------------
+ipcMain.handle('diagnostics:opcua-probe', async (event, {
+  endpointUrl,
+  nodeId = 'ns=0;i=2258', // ServerStatus_CurrentTime
+  publishIntervalMs = 250,
+  systemBHost = '',
+  synMonitorSeconds = 0
+} = {}) => {
+  if (!endpointUrl) {
+    throw new Error('endpointUrl is required (e.g., opc.tcp://<hostname>:<port>)');
+  }
+  if (!opcua) {
+    throw new Error('node-opcua is not installed. Please run: npm install node-opcua');
   }
 
-  const endTime = started + Math.max(1000, durationSeconds * 1000);
-  while (Date.now() < endTime) {
-    // eslint-disable-next-line no-await-in-loop
-    const s = await snapshot();
-    samples.push(s);
-    // sleep
-    // eslint-disable-next-line no-await-in-loop
-    await new Promise(r => setTimeout(r, Math.max(200, intervalMs)));
+  const startedAt = Date.now();
+  const adapters = listNetworkInterfaces();
+  const probe = {
+    endpointUrl,
+    adapters,
+    clientSocket: null,
+    listenersBefore: [],
+    listenersAfter: [],
+    subscriptionCreated: false,
+    monitoredItemNodeId: nodeId,
+    synMonitor: { enabled: synMonitorSeconds > 0, method: null, events: [] }
+  };
+
+  // Capture listeners before connecting
+  probe.listenersBefore = await listProcessListeners();
+
+  const client = opcua.OPCUAClient.create({
+    endpointMustExist: false,
+    keepSessionAlive: true,
+    transportSettings: {
+      connectionStrategy: { maxRetry: 0 }
+    }
+  });
+
+  let session = null;
+  let subscription = null;
+  try {
+    await client.connect(endpointUrl);
+    probe.clientSocket = getClientSocketInfo(client);
+
+    session = await client.createSession();
+
+    // Create a subscription to force server->client publish activity over the secure channel
+    subscription = opcua.ClientSubscription.create(session, {
+      requestedPublishingInterval: Math.max(50, Number(publishIntervalMs) || 250),
+      requestedLifetimeCount: 100,
+      requestedMaxKeepAliveCount: 20,
+      maxNotificationsPerPublish: 1000,
+      publishingEnabled: true,
+      priority: 10
+    });
+    probe.subscriptionCreated = true;
+
+    const itemToMonitor = {
+      nodeId: opcua.resolveNodeId(nodeId),
+      attributeId: opcua.AttributeIds.Value
+    };
+    const parameters = {
+      samplingInterval: 1000,
+      discardOldest: true,
+      queueSize: 10
+    };
+    const monitoredItem = opcua.ClientMonitoredItem.create(
+      subscription,
+      itemToMonitor,
+      parameters,
+      opcua.TimestampsToReturn.Both
+    );
+
+    // Wait briefly to allow any sockets/listeners to initialize
+    await new Promise(r => setTimeout(r, 1500));
+
+    // Capture listeners after creating subscription
+    probe.listenersAfter = await listProcessListeners();
+
+    // Optionally monitor for SYN attempts from System B to any new listeners
+    if (synMonitorSeconds > 0) {
+      const candidatePorts = probe.listenersAfter
+        .filter(l => !probe.listenersBefore.some(b => b.localPort === l.localPort))
+        .map(l => Number(l.localPort));
+
+      // If no new listeners appeared, still allow monitoring known listeners
+      const targetPorts = candidatePorts.length ? candidatePorts : probe.listenersAfter.map(l => Number(l.localPort));
+
+      let localIp = probe.clientSocket && probe.clientSocket.localAddress;
+      // If client socket not available, pick first non-internal adapter
+      if (!localIp && adapters.length && adapters[0].addresses.length) {
+        localIp = adapters[0].addresses[0].address;
+      }
+
+      const { method, events } = await monitorSynAttempts({
+        durationSeconds: synMonitorSeconds,
+        localIp,
+        targetPorts,
+        sourceHost: systemBHost || undefined
+      });
+      probe.synMonitor.method = method;
+      probe.synMonitor.events = events;
+    }
+
+    // Clean up monitored item and subscription
+    try { await monitoredItem.terminate(); } catch {}
+    try { await subscription.terminate(); } catch {}
+    try { await session.close(); } catch {}
+    try { await client.disconnect(); } catch {}
+  } catch (e) {
+    // Attempt graceful cleanup
+    try { if (subscription) await subscription.terminate(); } catch {}
+    try { if (session) await session.close(); } catch {}
+    try { await client.disconnect(); } catch {}
+    probe.error = e && (e.message || String(e));
   }
 
-  // Write log
+  // Write structured log
   const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-  const logFileName = `monitor-outbound_${remoteHost}_${remotePort}_${timestamp}.log`;
+  const logFileName = `opcua-callback-probe_${timestamp}.log`;
   const logPath = path.join(logDir, logFileName);
   const lines = [];
   lines.push('='.repeat(80));
-  lines.push('OUTBOUND CONNECTION MONITOR');
+  lines.push('OPC UA CALLBACK PATH PROBE');
   lines.push('='.repeat(80));
   lines.push(`When: ${new Date().toISOString()}`);
-  lines.push(`Target: ${remoteHost}:${remotePort}`);
-  for (const s of samples) {
+  lines.push(`EndpointUrl: ${probe.endpointUrl}`);
+  lines.push(`DurationMs: ${Date.now() - startedAt}`);
+  lines.push('-'.repeat(80));
+  lines.push('Client Callback Info:');
+  if (probe.clientSocket) {
+    lines.push(`Local: ${probe.clientSocket.localAddress}:${probe.clientSocket.localPort}`);
+    lines.push(`Remote: ${probe.clientSocket.remoteAddress}:${probe.clientSocket.remotePort}`);
+  } else {
+    lines.push('Local: (unavailable)');
+  }
+  lines.push('-'.repeat(80));
+  lines.push('System A Network Interfaces:');
+  adapters.forEach(a => {
+    lines.push(`Adapter: ${a.name}`);
+    a.addresses.forEach(addr => lines.push(`  ${addr.address} cidr=${addr.cidr} mac=${addr.mac}`));
+  });
+  lines.push('-'.repeat(80));
+  lines.push('Process Listening Ports (before):');
+  if (!probe.listenersBefore.length) {
+    lines.push('  (none)');
+  } else {
+    probe.listenersBefore.forEach(l => lines.push(`  ${l.localAddress}:${l.localPort} pid=${l.pid}`));
+  }
+  lines.push('Process Listening Ports (after subscription):');
+  if (!probe.listenersAfter.length) {
+    lines.push('  (none)');
+  } else {
+    probe.listenersAfter.forEach(l => lines.push(`  ${l.localAddress}:${l.localPort} pid=${l.pid}`));
+  }
+  if (probe.synMonitor.enabled) {
     lines.push('-'.repeat(80));
-    lines.push(`t=${new Date(s.timestamp).toISOString()}`);
-    if (!s.connections.length) {
-      lines.push('No matching connections');
+    lines.push(`Connection Attempt Logger: method=${probe.synMonitor.method || 'none'}`);
+    if (!probe.synMonitor.events.length) {
+      lines.push('  No SYN attempts captured');
     } else {
-      s.connections.forEach(c => {
-        lines.push(`${c.localAddress}:${c.localPort} -> ${c.remoteAddress}:${c.remotePort} [${c.state}] pid=${c.pid} ${c.process || ''}`);
+      probe.synMonitor.events.forEach(ev => {
+        lines.push(`  [${ev.timestamp}] ${ev.src}:${ev.srcPort} -> ${ev.dst}:${ev.dstPort} syn=${ev.syn} ack=${ev.ack || false}`);
       });
     }
   }
+  if (probe.error) {
+    lines.push('-'.repeat(80));
+    lines.push(`Error: ${probe.error}`);
+  }
   fs.writeFileSync(logPath, lines.join('\n'));
 
-  return { samples, logPath, logFileName };
+  return { probe, logPath, logFileName };
 });
 
 // end of file
