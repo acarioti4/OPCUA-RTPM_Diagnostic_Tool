@@ -4,6 +4,10 @@ const path = require('path');
 const net = require('net');
 const fs = require('fs');
 const { exec } = require('child_process');
+const { ensureLogDir, generateLogContent } = require('./logs');
+const { testPort, testPortsConcurrent } = require('./portScan');
+const { createHelloBuffer, parseAckHeader } = require('./opcuaHello');
+const { parseConnectionsByLocalPort, parseNetstatForTarget, pidToNameMap } = require('./netstat');
 
 let mainWindow;
 
@@ -36,61 +40,7 @@ app.on('activate', () => {
 });
 
 // Ensure log directory exists
-const logDir = path.join(app.getPath('userData'), 'logs');
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir, { recursive: true });
-}
-
-// Test a single port
-function testPort(host, port, timeout = 3000) {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    let connected = false;
-
-    socket.setTimeout(timeout);
-
-    socket.on('connect', () => {
-      connected = true;
-      socket.destroy();
-      resolve({
-        port,
-        status: 'open',
-        message: 'Connection successful - Port is open and accepting connections'
-      });
-    });
-
-    socket.on('timeout', () => {
-      socket.destroy();
-      resolve({
-        port,
-        status: 'timeout',
-        message: 'Connection timeout - Port may be filtered or host is unreachable'
-      });
-    });
-
-    socket.on('error', (err) => {
-      let message = '';
-      if (err.code === 'ECONNREFUSED') {
-        message = 'Connection refused - Port is closed or service is not running';
-      } else if (err.code === 'EHOSTUNREACH') {
-        message = 'Host unreachable - Check network connectivity';
-      } else if (err.code === 'ENETUNREACH') {
-        message = 'Network unreachable - Check routing or firewall settings';
-      } else {
-        message = `Error: ${err.code || err.message}`;
-      }
-      
-      resolve({
-        port,
-        status: 'closed',
-        message,
-        error: err.code
-      });
-    });
-
-    socket.connect(port, host);
-  });
-}
+const logDir = ensureLogDir();
 
 // Handle port testing request
 ipcMain.handle('test-ports', async (event, { host, startPort, endPort, concurrency }) => {
@@ -121,35 +71,6 @@ ipcMain.handle('test-ports', async (event, { host, startPort, endPort, concurren
 
 // Detect active client connections to local OPC UA Server port (e.g., Kepware 4840)
 ipcMain.handle('detect-service', async (event, { serverPort = 4840 } = {}) => {
-  const parseConnections = (text, targetPort) => {
-    const lines = text.split(/\r?\n/);
-    const conns = [];
-    const re = /^\s*TCP\s+([^\s:]+):(\d+)\s+([^\s:]+):(\d+)\s+(\S+)\s+(\d+)/i;
-    for (const line of lines) {
-      const m = re.exec(line);
-      if (!m) continue;
-      const localAddr = m[1];
-      const localPort = Number(m[2]);
-      const remoteAddr = m[3];
-      const remotePort = Number(m[4]);
-      const state = m[5];
-      if (localPort === Number(targetPort) && ['ESTABLISHED', 'SYN_RECEIVED', 'SYN_SENT'].includes(state)) {
-        conns.push({ localAddress: localAddr, localPort, remoteAddress: remoteAddr, remotePort, state });
-      }
-    }
-    // Deduplicate by remoteAddress:remotePort
-    const seen = new Set();
-    const unique = [];
-    for (const c of conns) {
-      const k = `${c.remoteAddress}:${c.remotePort}`;
-      if (!seen.has(k)) {
-        seen.add(k);
-        unique.push(c);
-      }
-    }
-    return unique;
-  };
-
   // Windows netstat output
   const cmd = 'netstat -ano -p tcp';
   return new Promise((resolve) => {
@@ -158,7 +79,7 @@ ipcMain.handle('detect-service', async (event, { serverPort = 4840 } = {}) => {
         resolve({ connections: [], error: err.message });
         return;
       }
-      const connections = parseConnections(stdout, serverPort);
+      const connections = parseConnectionsByLocalPort(stdout, serverPort);
       resolve({ connections });
     });
   });
@@ -170,41 +91,6 @@ ipcMain.handle('opc-hello-test', async (event, { host, port, endpointUrl } = {})
     throw new Error('host and port are required');
   }
   const url = endpointUrl || `opc.tcp://${host}:${port}`;
-
-  function createHelloBuffer(epUrl) {
-    // Build HELF header + body per OPC UA TCP
-    const endpointBytes = Buffer.from(epUrl, 'utf8');
-    const stringLen = Buffer.alloc(4);
-    stringLen.writeInt32LE(endpointBytes.length, 0);
-
-    const body = Buffer.alloc(20); // 5x UInt32
-    // protocolVersion
-    body.writeUInt32LE(0, 0);
-    // receiveBufferSize
-    body.writeUInt32LE(16384, 4);
-    // sendBufferSize
-    body.writeUInt32LE(16384, 8);
-    // maxMessageSize (0 = unlimited)
-    body.writeUInt32LE(0, 12);
-    // maxChunkCount (0 = unlimited)
-    body.writeUInt32LE(0, 16);
-
-    const header = Buffer.alloc(8);
-    header.write('HELF', 0, 'ascii'); // MessageType 'HEL' + 'F' chunk
-
-    const totalLen = header.length + body.length + stringLen.length + endpointBytes.length;
-    header.writeUInt32LE(totalLen, 4);
-
-    return Buffer.concat([header, body, stringLen, endpointBytes]);
-  }
-
-  function parseAckHeader(buf) {
-    if (buf.length < 8) return { ok: false, message: 'Incomplete response header' };
-    const msgType = buf.slice(0, 3).toString('ascii');
-    const chunkType = buf.slice(3, 4).toString('ascii');
-    const length = buf.readUInt32LE(4);
-    return { msgType, chunkType, length };
-  }
 
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -240,103 +126,198 @@ ipcMain.handle('opc-hello-test', async (event, { host, port, endpointUrl } = {})
   });
 });
 
-// Concurrent port testing with limit
-function testPortsConcurrent(host, startPort, endPort, concurrency = 100, onProgress) {
-  const totalPorts = endPort - startPort + 1;
-  const ports = [];
-  for (let p = startPort; p <= endPort; p++) {
-    ports.push(p);
+// Generic TCP connect + optional payload send + optional response read
+ipcMain.handle('tcp-send-test', async (event, {
+  host,
+  port,
+  payload = '',
+  encoding = 'text', // 'text' | 'hex'
+  expectResponse = true,
+  readTimeoutMs = 3000,
+  maxBytes = 4096
+} = {}) => {
+  if (!host || !port) {
+    throw new Error('host and port are required');
   }
 
-  const results = new Array(totalPorts);
-  let inFlight = 0;
-  let nextIndex = 0;
-  let completed = 0;
+  function makeBuffer(data, enc) {
+    if (!data) return Buffer.alloc(0);
+    if (enc === 'hex') {
+      return Buffer.from(data.replace(/\s+/g, ''), 'hex');
+    }
+    return Buffer.from(String(data), 'utf8');
+  }
+
+  const startTs = Date.now();
+  const txBuffer = makeBuffer(payload, encoding);
 
   return new Promise((resolve) => {
-    function launchMore() {
-      while (inFlight < concurrency && nextIndex < totalPorts) {
-        const currentIndex = nextIndex++;
-        const port = ports[currentIndex];
-        inFlight++;
+    const socket = new net.Socket();
+    let timer = null;
+    let received = Buffer.alloc(0);
+    let connectedAt = null;
 
-        testPort(host, port).then((result) => {
-          results[currentIndex] = result;
-          completed++;
-          if (onProgress) {
-            onProgress({
-              current: completed,
-              total: totalPorts,
-              result
-            });
-          }
-        }).finally(() => {
-          inFlight--;
-          if (completed === totalPorts) {
-            resolve(results);
-          } else {
-            launchMore();
-          }
-        });
+    const finalize = (res) => {
+      try { if (timer) clearTimeout(timer); } catch {}
+      try { socket.destroy(); } catch {}
+
+      // Persist log
+      const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+      const logFileName = `tcp-send_${host}_${port}_${timestamp}.log`;
+      const logPath = path.join(logDir, logFileName);
+
+      const lines = [];
+      lines.push('='.repeat(80));
+      lines.push('MY SERVICE TCP LISTENER TEST');
+      lines.push('='.repeat(80));
+      lines.push(`When: ${new Date().toISOString()}`);
+      lines.push(`Target: ${host}:${port}`);
+      lines.push(`Connected: ${res.connected ? 'yes' : 'no'}`);
+      lines.push(`ConnectMs: ${res.connectMs ?? 'n/a'}`);
+      lines.push(`SentBytes: ${res.sentBytes}`);
+      lines.push(`ExpectResponse: ${expectResponse}`);
+      lines.push(`ReceivedBytes: ${res.receivedBytes}`);
+      if (res.responseHex) lines.push(`ResponseHex: ${res.responseHex}`);
+      if (res.responseText) lines.push(`ResponseText: ${res.responseText}`);
+      if (res.error) lines.push(`Error: ${res.error}`);
+      fs.writeFileSync(logPath, lines.join('\n'));
+
+      resolve({ ...res, logPath, logFileName });
+    };
+
+    const onTimeout = () => {
+      finalize({
+        ok: txBuffer.length === 0 ? true : true,
+        connected: Boolean(connectedAt),
+        connectMs: connectedAt ? (connectedAt - startTs) : undefined,
+        sentBytes: txBuffer.length,
+        receivedBytes: received.length,
+        responseHex: received.length ? received.toString('hex') : '',
+        responseText: received.length ? received.toString('utf8') : '',
+        message: 'Completed with timeout while waiting for response'
+      });
+    };
+
+    socket.setTimeout(Math.max(1000, readTimeoutMs));
+    socket.once('timeout', onTimeout);
+
+    socket.once('error', (err) => {
+      finalize({
+        ok: false,
+        connected: Boolean(connectedAt),
+        connectMs: connectedAt ? (connectedAt - startTs) : undefined,
+        sentBytes: txBuffer.length,
+        receivedBytes: received.length,
+        responseHex: received.length ? received.toString('hex') : '',
+        responseText: received.length ? received.toString('utf8') : '',
+        error: err.code || err.message
+      });
+    });
+
+    socket.connect(Number(port), host, () => {
+      connectedAt = Date.now();
+      socket.setNoDelay(true);
+      if (txBuffer.length) {
+        socket.write(txBuffer);
       }
+      if (!expectResponse) {
+        timer = setTimeout(() => {
+          finalize({
+            ok: true,
+            connected: true,
+            connectMs: connectedAt - startTs,
+            sentBytes: txBuffer.length,
+            receivedBytes: 0,
+            responseHex: '',
+            responseText: '',
+            message: 'Sent without waiting for response'
+          });
+        }, Math.max(200, readTimeoutMs));
+      }
+    });
+
+    socket.on('data', (chunk) => {
+      if (!expectResponse) return;
+      received = Buffer.concat([received, chunk]);
+      if (received.length >= maxBytes) {
+        finalize({
+          ok: true,
+          connected: true,
+          connectMs: connectedAt ? (connectedAt - startTs) : undefined,
+          sentBytes: txBuffer.length,
+          receivedBytes: received.length,
+          responseHex: received.toString('hex'),
+          responseText: received.toString('utf8'),
+          message: 'Received max bytes'
+        });
+      } else {
+        // refresh timeout window
+        try { if (timer) clearTimeout(timer); } catch {}
+        timer = setTimeout(onTimeout, Math.max(200, readTimeoutMs));
+      }
+    });
+  });
+});
+
+// Monitor outbound TCP connections to a specific remote host:port for a short window
+ipcMain.handle('monitor-outbound', async (event, {
+  remoteHost,
+  remotePort,
+  durationSeconds = 10,
+  intervalMs = 1000
+} = {}) => {
+  if (!remoteHost || !remotePort) {
+    throw new Error('remoteHost and remotePort are required');
+  }
+  const samples = [];
+  const started = Date.now();
+
+  async function snapshot() {
+    return new Promise((resolve) => {
+      exec('netstat -ano -p tcp', { windowsHide: true }, async (err, stdout) => {
+        if (err) return resolve({ timestamp: Date.now(), connections: [] });
+        const conns = parseNetstatForTarget(stdout, remoteHost, remotePort);
+        const pidMap = await pidToNameMap(conns.map(c => c.pid));
+        conns.forEach(c => { c.process = pidMap[c.pid] || ''; });
+        resolve({ timestamp: Date.now(), connections: conns });
+      });
+    });
+  }
+
+  const endTime = started + Math.max(1000, durationSeconds * 1000);
+  while (Date.now() < endTime) {
+    // eslint-disable-next-line no-await-in-loop
+    const s = await snapshot();
+    samples.push(s);
+    // sleep
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise(r => setTimeout(r, Math.max(200, intervalMs)));
+  }
+
+  // Write log
+  const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+  const logFileName = `monitor-outbound_${remoteHost}_${remotePort}_${timestamp}.log`;
+  const logPath = path.join(logDir, logFileName);
+  const lines = [];
+  lines.push('='.repeat(80));
+  lines.push('OUTBOUND CONNECTION MONITOR');
+  lines.push('='.repeat(80));
+  lines.push(`When: ${new Date().toISOString()}`);
+  lines.push(`Target: ${remoteHost}:${remotePort}`);
+  for (const s of samples) {
+    lines.push('-'.repeat(80));
+    lines.push(`t=${new Date(s.timestamp).toISOString()}`);
+    if (!s.connections.length) {
+      lines.push('No matching connections');
+    } else {
+      s.connections.forEach(c => {
+        lines.push(`${c.localAddress}:${c.localPort} -> ${c.remoteAddress}:${c.remotePort} [${c.state}] pid=${c.pid} ${c.process || ''}`);
+      });
     }
-
-    launchMore();
-  });
-}
-
-function generateLogContent(host, startPort, endPort, results) {
-  const timestamp = new Date().toISOString();
-  const openPorts = results.filter(r => r.status === 'open');
-  const closedPorts = results.filter(r => r.status === 'closed');
-  const timeoutPorts = results.filter(r => r.status === 'timeout');
-
-  let content = '='.repeat(80) + '\n';
-  content += 'OPC UA SERVER TO RTPM SERVER - TCP CONNECTIVITY TEST\n';
-  content += '='.repeat(80) + '\n\n';
-  content += `Test Date/Time: ${timestamp}\n`;
-  content += `Target Host: ${host}\n`;
-  content += `Port Range: ${startPort}-${endPort}\n`;
-  content += `Total Ports Tested: ${results.length}\n\n`;
-
-  content += 'SUMMARY\n';
-  content += '-'.repeat(80) + '\n';
-  content += `Open Ports: ${openPorts.length}\n`;
-  content += `Closed Ports: ${closedPorts.length}\n`;
-  content += `Timeout/Filtered: ${timeoutPorts.length}\n\n`;
-
-  if (openPorts.length > 0) {
-    content += 'SUCCESSFUL CONNECTIONS (OPEN PORTS)\n';
-    content += '-'.repeat(80) + '\n';
-    openPorts.forEach(p => {
-      content += `Port ${p.port}: ${p.message}\n`;
-    });
-    content += '\n';
   }
+  fs.writeFileSync(logPath, lines.join('\n'));
 
-  if (closedPorts.length > 0) {
-    content += 'FAILED CONNECTIONS (CLOSED PORTS)\n';
-    content += '-'.repeat(80) + '\n';
-    closedPorts.forEach(p => {
-      content += `Port ${p.port}: ${p.message}\n`;
-    });
-    content += '\n';
-  }
+  return { samples, logPath, logFileName };
+});
 
-  if (timeoutPorts.length > 0) {
-    content += 'TIMEOUT/FILTERED PORTS\n';
-    content += '-'.repeat(80) + '\n';
-    timeoutPorts.forEach(p => {
-      content += `Port ${p.port}: ${p.message}\n`;
-    });
-    content += '\n';
-  }
-
-  content += 'DETAILED RESULTS\n';
-  content += '-'.repeat(80) + '\n';
-  results.forEach(r => {
-    content += `[${r.status.toUpperCase()}] Port ${r.port}: ${r.message}\n`;
-  });
-
-  return content;
-}
+// end of file

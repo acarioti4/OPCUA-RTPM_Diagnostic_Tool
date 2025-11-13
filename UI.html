@@ -83,6 +83,10 @@
       text-align: center;
       position: relative;
     }
+    body.theme-dark .header {
+      background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%);
+      color: var(--text-primary);
+    }
 
     .header h1 {
       font-size: 24px;
@@ -286,6 +290,8 @@
       padding: 20px;
       border-radius: 8px;
       text-align: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
     }
 
     .summary-card.success {
@@ -301,6 +307,46 @@
     .summary-card.warning {
       background: #fff3cd;
       border: 2px solid #ffc107;
+    }
+
+    /* Hover lighting to emphasize as buttons */
+    .summary-card:hover {
+      transform: translateY(-2px);
+    }
+    .summary-card.success:hover {
+      background: #c7e9cf;
+      box-shadow: 0 8px 24px rgba(40, 167, 69, 0.35), 0 0 0 2px rgba(40, 167, 69, 0.3) inset;
+      border-color: #28a745;
+    }
+    .summary-card.error:hover {
+      background: #f3c2c8;
+      box-shadow: 0 8px 24px rgba(220, 53, 69, 0.35), 0 0 0 2px rgba(220, 53, 69, 0.3) inset;
+      border-color: #dc3545;
+    }
+    .summary-card.warning:hover {
+      background: #ffeaa0;
+      box-shadow: 0 8px 24px rgba(255, 193, 7, 0.35), 0 0 0 2px rgba(255, 193, 7, 0.35) inset;
+      border-color: #ffc107;
+    }
+
+    /* Dark mode hover uses subtle translucent glow */
+    body.theme-dark .summary-card.success:hover {
+      background: rgba(40, 167, 69, 0.12);
+      box-shadow: 0 8px 24px rgba(40, 167, 69, 0.35), 0 0 0 2px rgba(40, 167, 69, 0.3) inset;
+    }
+    body.theme-dark .summary-card.error:hover {
+      background: rgba(220, 53, 69, 0.12);
+      box-shadow: 0 8px 24px rgba(220, 53, 69, 0.35), 0 0 0 2px rgba(220, 53, 69, 0.3) inset;
+    }
+    body.theme-dark .summary-card.warning:hover {
+      background: rgba(255, 193, 7, 0.12);
+      box-shadow: 0 8px 24px rgba(255, 193, 7, 0.35), 0 0 0 2px rgba(255, 193, 7, 0.35) inset;
+    }
+
+    /* Keyboard focus visibility */
+    .summary-card:focus-visible {
+      outline: 3px solid rgba(99, 102, 241, 0.6);
+      outline-offset: 2px;
     }
 
     .summary-card h3 {
@@ -373,6 +419,13 @@
       font-size: 13px;
       color: #666;
     }
+    /* Color result text to match status */
+    .result-item.open strong,
+    .result-item.open span { color: #28a745; }
+    .result-item.closed strong,
+    .result-item.closed span { color: #dc3545; }
+    .result-item.timeout strong,
+    .result-item.timeout span { color: #ffc107; }
 
     .log-info {
       margin-top: 20px;
