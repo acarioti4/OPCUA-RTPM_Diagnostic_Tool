@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OPC UA to RTPM Server - TCP Port Tester</title>
+  <style>
+    :root {
+      --container-bg: #ffffff;
+      --text-primary: #333333;
+      --text-muted: #666666;
+      --results-bg: #f8f9fa;
+      --log-bg: #e7f3ff;
+      --log-border: #2196F3;
+      --accent-start: #667eea;
+      --accent-end: #764ba2;
+      --bg-start: #667eea;
+      --bg-end: #764ba2;
+    }
+
+    /* Light: Blue Sky / Forest */
+    .theme-light {
+      --container-bg: #ffffff;
+      --text-primary: #1f3d2a; /* deep forest green */
+      --text-muted: #4f6a5b;
+      --results-bg: #eef7ff;   /* soft sky panel */
+      --log-bg: #e6f2ff;       /* light sky note */
+      --log-border: #5aa9e6;   /* sky blue border */
+      --accent-start: #60a5fa; /* sky blue */
+      --accent-end: #34d399;   /* forest green */
+      --bg-start: #a1c4fd;     /* blue sky */
+      --bg-end: #c2e9fb;       /* bright sky */
+    }
+
+    /* Dark: Classic */
+    .theme-dark {
+      --container-bg: #111827; /* slate-800 */
+      --text-primary: #e5e7eb; /* gray-200 */
+      --text-muted: #9ca3af;   /* gray-400 */
+      --results-bg: #0b1220;   /* dark panel */
+      --log-bg: #0f172a;       /* slate-900 */
+      --log-border: #3b82f6;   /* blue-500 */
+      --accent-start: #3b82f6; /* blue */
+      --accent-end: #2563eb;   /* blue */
+      --bg-start: #0f172a;     /* slate-900 */
+      --bg-end: #111827;       /* slate-800 */
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+      background-size: 200% 200%;
+      animation: gradientShift 10s ease infinite;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    .container {
+      max-width: 850px;
+      margin: 0 auto;
+      background: var(--container-bg);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, var(--accent-start) 0%, var(--accent-end) 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+      position: relative;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      margin-bottom: 5px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+
+    .theme-toggle {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .theme-chip {
+      border: none;
+      border-radius: 9999px;
+      padding: 6px 12px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      background: rgba(255,255,255,0.85);
+      color: #111827;
+    }
+
+    .theme-chip:hover {
+      transform: translateY(-1px);
+    }
+
+    .theme-chip.light.active {
+      background: linear-gradient(135deg, #a1c4fd, #c2e9fb);
+      color: #0f2a1f;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.8) inset, 0 6px 20px rgba(97, 173, 253, 0.35);
+    }
+
+    .theme-chip.dark.active {
+      background: linear-gradient(135deg, #0f172a, #374151);
+      color: #e5e7eb;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.5) inset, 0 6px 20px rgba(0,0,0,0.35);
+    }
+
+    .content {
+      padding: 30px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .port-range {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+
+    .btn {
+      background: linear-gradient(135deg, var(--accent-start) 0%, var(--accent-end) 100%);
+      color: white;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .progress-section {
+      margin-top: 30px;
+      display: none;
+    }
+
+    .progress-section.active {
+      display: block;
+    }
+
+    .progress-bar-container {
+      background: #f0f0f0;
+      border-radius: 8px;
+      height: 24px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+
+    .progress-bar {
+      background: linear-gradient(90deg, var(--accent-start) 0%, var(--accent-end) 100%);
+      height: 100%;
+      transition: width 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,0.08) inset;
+      background-size: 200% 100%;
+      animation: barSheen 3s ease infinite;
+    }
+
+    @keyframes barSheen {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    .progress-bar.loading::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        45deg,
+        rgba(255,255,255,0.25) 0px,
+        rgba(255,255,255,0.25) 10px,
+        transparent 10px,
+        transparent 20px
+      );
+      animation: stripeMove 1s linear infinite;
+      pointer-events: none;
+    }
+
+    @keyframes stripeMove {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(20px); }
+    }
+
+    /* Category heading */
+    .category-title {
+      margin: 16px 0 10px;
+      font-weight: 800;
+      font-size: 14px;
+      color: var(--text-primary);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      opacity: 0.85;
+    }
+
+    .progress-text {
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .results-section {
+      margin-top: 30px;
+      display: none;
+    }
+
+    .results-section.active {
+      display: block;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-bottom: 25px;
+    }
+
+    .summary-card {
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .summary-card.success {
+      background: #d4edda;
+      border: 2px solid #28a745;
+    }
+
+    .summary-card.error {
+      background: #f8d7da;
+      border: 2px solid #dc3545;
+    }
+
+    .summary-card.warning {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+    }
+
+    .summary-card h3 {
+      font-size: 32px;
+      margin-bottom: 5px;
+    }
+
+    .summary-card p {
+      font-size: 14px;
+      color: #666;
+    }
+
+    .results-list {
+      background: var(--results-bg);
+      border-radius: 8px;
+      padding: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .result-item {
+      padding: 12px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+      border-left: 4px solid;
+      background: var(--container-bg);
+      animation: fadeSlideIn 300ms ease-out;
+    }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 3px solid rgba(102,126,234,0.25);
+      border-top-color: #667eea;
+      border-radius: 50%;
+      display: inline-block;
+      animation: spin 0.8s linear infinite;
+      margin-left: 8px;
+      vertical-align: text-bottom;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .result-item.open {
+      border-left-color: #28a745;
+    }
+
+    .result-item.closed {
+      border-left-color: #dc3545;
+    }
+
+    .result-item.timeout {
+      border-left-color: #ffc107;
+    }
+
+    .result-item strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .result-item span {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .log-info {
+      margin-top: 20px;
+      padding: 15px;
+      background: var(--log-bg);
+      border: 2px solid var(--log-border);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .log-info strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--accent-end);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔌 OPC UA Server to RTPM Server</h1>
+      <p>TCP Connectivity Test Tool</p>
+      <div class="theme-toggle">
+        <button type="button" id="btnLight" class="theme-chip light">Light</button>
+        <button type="button" id="btnDark" class="theme-chip dark">Dark</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <form id="testForm">
+        <div class="form-group">
+          <label for="ipAddress">RTPM Server IP Address</label>
+          <input 
+            type="text" 
+            id="ipAddress" 
+            placeholder="e.g., 192.168.1.100" 
+            required
+            pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
+          >
+        </div>
+
+        <div class="form-group" style="margin-top: -10px;">
+          <label for="detectServerPort">Detect from active Kepware connections (OPC UA server port)</label>
+          <div style="display:flex; gap:10px;">
+            <input 
+              type="number" 
+              id="detectServerPort" 
+              min="1" 
+              max="65535" 
+              value="4840"
+              aria-label="OPC UA Server Port for detection"
+              style="flex:1"
+            >
+            <button type="button" class="btn" id="btnDetectService" style="width:auto; white-space:nowrap;">Detect Service IP</button>
+          </div>
+          <div style="font-size:12px; color: var(--text-muted); margin-top:6px;">
+            Click while your remote service (OPC UA client) is connected to Kepware to auto-fill its IP.
+          </div>
+        </div>
+
+        <div class="port-range">
+          <div class="form-group">
+            <label for="startPort">Start Port</label>
+            <input 
+              type="number" 
+              id="startPort" 
+              min="1" 
+              max="65535" 
+              value="4840"
+              required
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="endPort">End Port</label>
+            <input 
+              type="number" 
+              id="endPort" 
+              min="1" 
+              max="65535" 
+              value="4850"
+              required
+            >
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="concurrency">Concurrent tests (1-500)</label>
+          <input 
+            type="number" 
+            id="concurrency" 
+            min="1" 
+            max="500" 
+            value="100"
+            required
+          >
+        </div>
+
+        <button type="submit" class="btn" id="testBtn">Start Connection Test</button>
+        <div style="height:10px;"></div>
+        <button type="button" class="btn" id="btnHelloTest">OPC UA Hello/ACK Test (single port)</button>
+      </form>
+
+      <div class="progress-section" id="progressSection">
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progressBar">0%</div>
+        </div>
+        <p class="progress-text" id="progressText">Testing ports... <span class="spinner" id="spinner" aria-hidden="true"></span></p>
+      </div>
+
+      <div class="results-section" id="resultsSection">
+        <div class="summary">
+          <div class="summary-card success" id="summaryOpen" role="button" tabindex="0">
+            <h3 id="openCount">0</h3>
+            <p>Open Ports</p>
+          </div>
+          <div class="summary-card error" id="summaryClosed" role="button" tabindex="0">
+            <h3 id="closedCount">0</h3>
+            <p>Closed Ports</p>
+          </div>
+          <div class="summary-card warning" id="summaryTimeout" role="button" tabindex="0">
+            <h3 id="timeoutCount">0</h3>
+            <p>Timeout/Filtered</p>
+          </div>
+        </div>
+
+        <div class="results-list" id="resultsList"></div>
+
+        <div class="log-info" id="logInfo"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('testForm');
+    const testBtn = document.getElementById('testBtn');
+    const progressSection = document.getElementById('progressSection');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const resultsSection = document.getElementById('resultsSection');
+    const resultsList = document.getElementById('resultsList');
+    const logInfo = document.getElementById('logInfo');
+    const openCount = document.getElementById('openCount');
+    const closedCount = document.getElementById('closedCount');
+    const timeoutCount = document.getElementById('timeoutCount');
+    const btnLight = document.getElementById('btnLight');
+    const btnDark = document.getElementById('btnDark');
+    const summaryOpen = document.getElementById('summaryOpen');
+    const summaryClosed = document.getElementById('summaryClosed');
+    const summaryTimeout = document.getElementById('summaryTimeout');
+    const btnDetectService = document.getElementById('btnDetectService');
+    const detectServerPort = document.getElementById('detectServerPort');
+    const btnHelloTest = document.getElementById('btnHelloTest');
+
+    let allResults = [];
+
+    // Theme handling
+    function setActiveChip(theme) {
+      btnLight.classList.toggle('active', theme === 'light');
+      btnDark.classList.toggle('active', theme === 'dark');
+    }
+
+    function applyTheme(theme) {
+      document.body.classList.remove('theme-light', 'theme-dark');
+      if (theme === 'dark') {
+        document.body.classList.add('theme-dark');
+      } else {
+        document.body.classList.add('theme-light');
+        theme = 'light';
+      }
+      setActiveChip(theme);
+      localStorage.setItem('opcRtpmTheme', theme);
+    }
+
+    // Initialize theme from storage or default
+    const savedThemeRaw = localStorage.getItem('opcRtpmTheme') || 'light';
+    // Back-compat: map old 'matrix' value to 'dark'
+    const savedTheme = savedThemeRaw === 'matrix' ? 'dark' : savedThemeRaw;
+    applyTheme(savedTheme);
+
+    btnLight.addEventListener('click', () => applyTheme('light'));
+    btnDark.addEventListener('click', () => applyTheme('dark'));
+
+    window.electronAPI.onTestProgress((data) => {
+      const percent = Math.round((data.current / data.total) * 100);
+      progressBar.style.width = percent + '%';
+      progressBar.textContent = percent + '%';
+      progressText.textContent = `Testing port ${data.result.port} (${data.current} of ${data.total})`;
+
+      // Add result to list in real-time
+      const resultItem = document.createElement('div');
+      resultItem.className = `result-item ${data.result.status}`;
+      resultItem.innerHTML = `
+        <strong>Port ${data.result.port} - ${data.result.status.toUpperCase()}</strong>
+        <span>${data.result.message}</span>
+      `;
+      resultsList.insertBefore(resultItem, resultsList.firstChild);
+
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const ipAddress = document.getElementById('ipAddress').value;
+      const startPort = parseInt(document.getElementById('startPort').value);
+      const endPort = parseInt(document.getElementById('endPort').value);
+
+      if (startPort > endPort) {
+        alert('Start port must be less than or equal to end port');
+        return;
+      }
+
+      // Reset UI
+      testBtn.disabled = true;
+      testBtn.textContent = 'Testing...';
+      progressSection.classList.add('active');
+      resultsSection.classList.remove('active');
+      resultsList.innerHTML = '';
+      progressBar.style.width = '0%';
+      progressBar.textContent = '0%';
+      progressBar.classList.add('loading');
+      allResults = [];
+
+      try {
+        const concurrency = parseInt(document.getElementById('concurrency').value) || 100;
+        const result = await window.electronAPI.testPorts(ipAddress, startPort, endPort, concurrency);
+        allResults = result.results;
+
+        // Update summary
+        const open = allResults.filter(r => r.status === 'open').length;
+        const closed = allResults.filter(r => r.status === 'closed').length;
+        const timeout = allResults.filter(r => r.status === 'timeout').length;
+
+        openCount.textContent = open;
+        closedCount.textContent = closed;
+        timeoutCount.textContent = timeout;
+
+        // Show log info
+        logInfo.innerHTML = `
+          <strong>📄 Test Log Saved</strong>
+          Log file: ${result.logFileName}<br>
+          Location: Application logs folder
+        `;
+
+        // Rebuild results grouped by category with anchors
+        buildGroupedResults(allResults);
+        resultsSection.classList.add('active');
+      } catch (error) {
+        alert('Error during testing: ' + error.message);
+      } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Start Connection Test';
+        progressSection.classList.remove('active');
+        progressBar.classList.remove('loading');
+      }
+    });
+
+    function buildGroupedResults(results) {
+      const open = results.filter(r => r.status === 'open');
+      const closed = results.filter(r => r.status === 'closed');
+      const timeout = results.filter(r => r.status === 'timeout');
+
+      resultsList.innerHTML = '';
+
+      if (open.length) {
+        const title = document.createElement('h4');
+        title.className = 'category-title';
+        title.id = 'openSection';
+        title.textContent = 'Open Ports';
+        resultsList.appendChild(title);
+        open.forEach(r => resultsList.appendChild(createResultItem(r)));
+      }
+
+      if (closed.length) {
+        const title = document.createElement('h4');
+        title.className = 'category-title';
+        title.id = 'closedSection';
+        title.textContent = 'Closed Ports';
+        resultsList.appendChild(title);
+        closed.forEach(r => resultsList.appendChild(createResultItem(r)));
+      }
+
+      if (timeout.length) {
+        const title = document.createElement('h4');
+        title.className = 'category-title';
+        title.id = 'timeoutSection';
+        title.textContent = 'Timeout/Filtered';
+        resultsList.appendChild(title);
+        timeout.forEach(r => resultsList.appendChild(createResultItem(r)));
+      }
+    }
+
+    function createResultItem(r) {
+      const el = document.createElement('div');
+      el.className = `result-item ${r.status}`;
+      el.innerHTML = `
+        <strong>Port ${r.port} - ${r.status.toUpperCase()}</strong>
+        <span>${r.message}</span>
+      `;
+      return el;
+    }
+
+    function scrollToSection(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    summaryOpen.addEventListener('click', () => scrollToSection('openSection'));
+    summaryClosed.addEventListener('click', () => scrollToSection('closedSection'));
+    summaryTimeout.addEventListener('click', () => scrollToSection('timeoutSection'));
+    summaryOpen.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') scrollToSection('openSection'); });
+    summaryClosed.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') scrollToSection('closedSection'); });
+    summaryTimeout.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') scrollToSection('timeoutSection'); });
+
+    // Detect remote service IP from active connections to local OPC UA server
+    btnDetectService.addEventListener('click', async () => {
+      btnDetectService.disabled = true;
+      btnDetectService.textContent = 'Detecting...';
+      try {
+        const port = parseInt(detectServerPort.value) || 4840;
+        const res = await window.electronAPI.detectService(port);
+        if (res.error) {
+          alert('Detect error: ' + res.error);
+        } else if (res.connections && res.connections.length) {
+          const c = res.connections[0];
+          document.getElementById('ipAddress').value = c.remoteAddress;
+          alert(`Detected service IP: ${c.remoteAddress} (remote port ${c.remotePort})`);
+        } else {
+          alert('No active connections detected on the specified OPC UA server port.');
+        }
+      } catch (e) {
+        alert('Detect failed: ' + e.message);
+      } finally {
+        btnDetectService.disabled = false;
+        btnDetectService.textContent = 'Detect Service IP';
+      }
+    });
+
+    // Single-port OPC UA Hello/ACK test
+    btnHelloTest.addEventListener('click', async () => {
+      const host = document.getElementById('ipAddress').value.trim();
+      const port = parseInt(document.getElementById('startPort').value);
+      if (!host || !port) {
+        alert('Please provide host and a single port (use Start Port).');
+        return;
+      }
+      btnHelloTest.disabled = true;
+      btnHelloTest.textContent = 'Sending HEL...';
+      try {
+        const res = await window.electronAPI.opcHelloTest(host, port, `opc.tcp://${host}:${port}`);
+        const item = document.createElement('div');
+        const status = res.ok ? 'open' : 'closed';
+        item.className = `result-item ${status}`;
+        item.innerHTML = `
+          <strong>OPC UA Hello → ${host}:${port} - ${res.ok ? 'ACK RECEIVED' : 'FAILED'}</strong>
+          <span>${res.message || ''}</span>
+        `;
+        resultsList.insertBefore(item, resultsList.firstChild);
+        resultsSection.classList.add('active');
+        alert(res.ok ? 'ACK received from remote endpoint.' : `HEL failed: ${res.message || res.error || 'unknown error'}`);
+      } catch (e) {
+        alert('HEL test error: ' + e.message);
+      } finally {
+        btnHelloTest.disabled = false;
+        btnHelloTest.textContent = 'OPC UA Hello/ACK Test (single port)';
+      }
+    });
+  </script>
+</body>
+</html>

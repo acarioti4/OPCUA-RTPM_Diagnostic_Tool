@@ -1,0 +1,35 @@
+{
+  "name": "opc-rtpm-tcp-tester",
+  "version": "0.2.0",
+  "description": "TCP connectivity tester - OPC UA Server to RTPM Server",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": ["electron", "tcp", "port-scanner", "opc-ua", "rtpm"],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "24.6.4"
+  },
+  "build": {
+    "appId": "com.aperturelabs.opc-rtpm-tester",
+    "productName": "OPC-RTPM TCP Tester",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "${productName}-${version}-portable-${os}-${arch}.${ext}"
+    }
+  }
+}
