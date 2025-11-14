@@ -30,14 +30,20 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
     height: 700,
+    show: false,
+    backgroundColor: '#0a0b0d',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false
     }
   });
 
   mainWindow.loadFile('index.html');
+  mainWindow.once('ready-to-show', () => {
+    if (!mainWindow.isDestroyed()) mainWindow.show();
+  });
 
   // Build application menu with Help > About
   const template = [

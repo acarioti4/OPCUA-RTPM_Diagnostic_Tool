@@ -27,21 +27,21 @@
     /* Light theme */
     .theme-light {
       --container-bg: #ffffff;
-      --text-primary: #111827; /* slate-900 */
-      --text-muted: #6b7280;   /* slate-500 */
+      --text-primary: #1f2937; /* slate-800 for stronger contrast */
+      --text-muted: #4b5563;   /* slate-600 for readability */
       --results-bg: #f9fafb;   /* slate-50 */
-      --log-bg: #eef6ff;       /* subtle info */
-      --log-border: #93c5fd;   /* blue-300 */
+      --log-bg: #fff1f2;       /* soft rose */
+      --log-border: #f9a8d4;   /* rose-300 */
       --accent: #ec4899;       /* sakura pink */
       --accent-2: #f472b6;     /* lighter pink */
-      --bg: #f3f4f6;           /* app background */
+      --bg: #f7f7fb;           /* slightly lighter app background */
       --shadow-accent: rgba(37, 99, 235, 0.25);
-      --keyline: rgba(0,0,0,0.06);
-      --header-bg: linear-gradient(180deg, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0.55) 100%);
+      --keyline: rgba(0,0,0,0.08);
+      --header-bg: linear-gradient(180deg, rgba(255,255,255,0.90) 0%, rgba(255,255,255,0.65) 100%);
       --bg-image: url('assets/light-sakura.svg');
-      --glass-bg: rgba(255,255,255,0.52);
-      --glass-stroke: rgba(255,255,255,0.65);
-      --overlay-scrim: rgba(255,255,255,0.10);
+      --glass-bg: rgba(255,255,255,0.78);
+      --glass-stroke: rgba(0,0,0,0.06);
+      --overlay-scrim: rgba(255,244,242,0.22); /* warm scrim for readability */
     }
 
     /* Dark theme */
@@ -100,6 +100,11 @@
         radial-gradient(1200px 800px at 50% 15%, rgba(255,255,255,0.12), transparent 50%),
         linear-gradient(180deg, var(--overlay-scrim) 0%, rgba(0,0,0,0.0) 60%, rgba(0,0,0,0.25) 100%);
       pointer-events: none;
+    }
+    body.theme-light::after {
+      background:
+        radial-gradient(1400px 900px at 50% 10%, rgba(255, 245, 245, 0.35), transparent 55%),
+        linear-gradient(180deg, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.16) 45%, rgba(255,255,255,0.0) 100%);
     }
 
     /* removed gradient animations to keep solid tones */
@@ -163,6 +168,7 @@
       border-radius: 8px 8px 0 0;
       cursor: pointer;
       transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+      will-change: transform;
     }
     .tab-button.active {
       color: var(--text-primary);
@@ -266,6 +272,16 @@
     body.theme-dark input::placeholder { color: rgba(229,231,235,0.48); }
     body.theme-dark input:focus { box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.28); }
 
+    /* Light theme input clarity */
+    body.theme-light input {
+      background: #ffffff;
+      border-color: rgba(0,0,0,0.08);
+      color: var(--text-primary);
+      box-shadow: inset 0 1px 0 rgba(0,0,0,0.03);
+    }
+    body.theme-light input::placeholder { color: rgba(31,41,55,0.48); }
+    body.theme-light input:focus { box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.22); }
+
     .port-range {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -286,6 +302,7 @@
       box-shadow: 0 8px 24px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.1) inset;
       position: relative;
       overflow: hidden;
+      will-change: transform;
     }
 
     .btn::after {
@@ -300,6 +317,27 @@
     .btn:hover:not(:disabled) {
       transform: translateY(-2px);
       box-shadow: 0 6px 20px var(--shadow-accent), 0 0 18px var(--shadow-accent);
+    }
+    .btn:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    /* Ripple effect for clicks (GPU-friendly transform + opacity) */
+    .btn .ripple {
+      position: absolute;
+      border-radius: 9999px;
+      transform: scale(0);
+      background: rgba(255,255,255,0.35);
+      pointer-events: none;
+      will-change: transform, opacity;
+      animation: ripple 450ms ease-out;
+    }
+    @keyframes ripple {
+      to {
+        transform: scale(4);
+        opacity: 0;
+      }
     }
 
     .btn:disabled {
@@ -324,10 +362,13 @@
     }
     .progress-inner {
       height: 100%;
-      width: 0%;
+      width: 100%;
       background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
       box-shadow: 0 0 24px var(--shadow-accent);
-      transition: width 300ms ease;
+      transform-origin: 0 50%;
+      transform: scaleX(0);
+      transition: transform 60ms linear;
+      will-change: transform;
     }
 
     .progress-meta {
@@ -374,6 +415,7 @@
       background: linear-gradient(90deg, #ffffff, rgba(255,255,255,0.75));
       box-shadow: 0 0 14px var(--shadow-accent);
       animation: indeterminateSweep 1.2s ease-in-out infinite;
+      will-change: transform, left, width;
     }
     @keyframes indeterminateSweep {
       0%   { left: -40%; width: 40%; }
@@ -401,6 +443,7 @@
       border: 1px solid var(--glass-stroke);
       box-shadow: 0 8px 24px rgba(0,0,0,0.12) inset;
     }
+    .theme-light .results-list { background: rgba(255,255,255,0.82); }
     .category-title {
       margin: 14px 0 8px;
       font-weight: 800;
@@ -423,6 +466,7 @@
       border: 1px solid var(--glass-stroke);
       animation: fadeSlideIn 300ms ease-out;
     }
+    .theme-light .result-item { background: rgba(255,255,255,0.9); }
 
 
     @keyframes fadeSlideIn {
@@ -531,6 +575,37 @@
       color: var(--text-muted);
     }
     .about-close:hover { color: var(--text-primary); }
+
+    /* Themed repository link */
+    .about-body a#aboutLink {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: var(--glass-bg);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--glass-stroke);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.08) inset;
+      overflow-wrap: anywhere;
+    }
+    .about-body a#aboutLink:hover {
+      text-decoration: underline;
+      box-shadow: 0 6px 18px var(--shadow-accent);
+    }
+    .about-body a#aboutLink:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .about-body a#aboutLink::after {
+      content: '↗';
+      font-size: 12px;
+      opacity: 0.8;
+    }
 
     /* Reduced motion: already handled below */
 
@@ -652,7 +727,7 @@
           <div>2025</div>
         </div>
         <div style="margin-top:10px;">
-          <a href="#" id="aboutLink">github.com/acarioti4/OPCUA-RTPM_Diagnostic_Tool</a>
+          <a href="https://github.com/acarioti4/OPCUA-RTPM_Diagnostic_Tool" id="aboutLink" rel="noopener noreferrer">github.com/acarioti4/OPCUA-RTPM_Diagnostic_Tool</a>
         </div>
       </div>
     </div>
@@ -695,6 +770,7 @@
     const currentTaskWrapper = document.getElementById('currentTaskWrapper');
     const currentTaskText = document.getElementById('currentTaskText');
     const toggleShowTask = document.getElementById('toggleShowTask');
+    let btnOriginalHtml = '';
 
     // Theme handling (UI toggle removed; default to dark)
     function applyTheme(theme) {
@@ -747,11 +823,39 @@
 
     // Progress helpers
     let progressValue = 0;
+    let progressTarget = 0;
+    let progressRAF = null;
     function setProgress(value, label) {
-      progressValue = Math.max(0, Math.min(100, Math.floor(value)));
-      if (progressInner) progressInner.style.width = progressValue + '%';
-      if (progressPercent) progressPercent.textContent = progressValue + '%';
+      progressTarget = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
       if (label && progressLabel) progressLabel.textContent = label;
+      if (!progressRAF) {
+        const step = () => {
+          // gentle easing towards target, high refresh for smoothness
+          progressValue += (progressTarget - progressValue) * 0.25;
+          const clamped = Math.max(0, Math.min(100, progressValue));
+          const scaled = clamped / 100;
+          if (progressInner) {
+            // transform-based to avoid layout thrash
+            progressInner.style.transform = 'scaleX(' + scaled + ')';
+          }
+          if (progressPercent) {
+            progressPercent.textContent = String(Math.round(clamped)) + '%';
+          }
+          if (Math.abs(progressTarget - progressValue) < 0.5) {
+            progressValue = progressTarget;
+            if (progressInner) {
+              progressInner.style.transform = 'scaleX(' + (progressTarget / 100) + ')';
+            }
+            if (progressPercent) {
+              progressPercent.textContent = String(Math.round(progressTarget)) + '%';
+            }
+            progressRAF = null;
+          } else {
+            progressRAF = requestAnimationFrame(step);
+          }
+        };
+        progressRAF = requestAnimationFrame(step);
+      }
     }
     function setCurrentTask(text) {
       if (currentTaskText) currentTaskText.textContent = text || '';
@@ -762,6 +866,11 @@
       if (runProgress) {
         runProgress.style.display = 'block';
         runProgress.setAttribute('aria-hidden', 'false');
+      }
+      if (btnRunProbe) {
+        btnOriginalHtml = btnRunProbe.innerHTML;
+        btnRunProbe.classList.add('progressing');
+        btnRunProbe.innerHTML = '<div class="inline-progress"><div class="bar"></div></div>';
       }
     }
 
@@ -811,6 +920,24 @@
         }
       });
     }
+
+    // Lightweight click ripple for buttons
+    function attachRipple(el) {
+      if (!el) return;
+      el.addEventListener('click', (e) => {
+        const rect = el.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height);
+        const span = document.createElement('span');
+        span.className = 'ripple';
+        span.style.width = size + 'px';
+        span.style.height = size + 'px';
+        span.style.left = (e.clientX - rect.left - size / 2) + 'px';
+        span.style.top = (e.clientY - rect.top - size / 2) + 'px';
+        el.appendChild(span);
+        span.addEventListener('animationend', () => span.remove());
+      }, { passive: true });
+    }
+    attachRipple(btnRunProbe);
     keybindsClose.addEventListener('click', hideKeybinds);
     aboutOverlay.addEventListener('click', (e) => {
       if (e.target === aboutOverlay) hideAbout();
@@ -1014,6 +1141,10 @@
         setCurrentTask('Failed.');
       } finally {
         btnRunProbe.disabled = false;
+        if (btnRunProbe) {
+          btnRunProbe.classList.remove('progressing');
+          if (btnOriginalHtml) btnRunProbe.innerHTML = btnOriginalHtml;
+        }
       }
     });
   </script>
