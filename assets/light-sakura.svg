@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 3840 2160" version="1.1">
+  <defs>
+    <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff9aa2"/>
+      <stop offset="35%" stop-color="#ffb199"/>
+      <stop offset="65%" stop-color="#ffd6a5"/>
+      <stop offset="100%" stop-color="#ffe8cc"/>
+    </linearGradient>
+    <radialGradient id="sunGrad" cx="50%" cy="68%" r="25%">
+      <stop offset="0%" stop-color="#fff6d6" stop-opacity="1"/>
+      <stop offset="45%" stop-color="#ffe6a6" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ffcf7d" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hillGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0a0b0" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#a06080" stop-opacity="0.65"/>
+    </linearGradient>
+    <filter id="softBlur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <filter id="petalGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="petalGrad" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#ffe3ef"/>
+      <stop offset="100%" stop-color="#f9a8c6"/>
+    </radialGradient>
+    <linearGradient id="branchGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5b3a3a"/>
+      <stop offset="100%" stop-color="#3b2626"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="3840" height="2160" fill="url(#skyGrad)"/>
+
+  <!-- Sun glow -->
+  <circle cx="1920" cy="1500" r="780" fill="url(#sunGrad)"/>
+
+  <!-- Distant mountains -->
+  <g opacity="0.35" filter="url(#softBlur)">
+    <path d="M0,1500 C400,1350 700,1400 1050,1500 C1400,1600 1650,1500 1920,1470 C2250,1430 2600,1550 2900,1500 C3150,1460 3400,1510 3840,1500 L3840,2160 L0,2160 Z" fill="#ad7aa6"/>
+  </g>
+  <g opacity="0.45" filter="url(#softBlur)">
+    <path d="M0,1600 C300,1550 650,1600 900,1620 C1200,1645 1500,1590 1920,1575 C2350,1560 2650,1625 3000,1640 C3300,1655 3600,1620 3840,1605 L3840,2160 L0,2160 Z" fill="#c98fb3"/>
+  </g>
+  <g opacity="0.55">
+    <path d="M0,1700 C320,1720 640,1750 980,1740 C1320,1730 1650,1690 1920,1705 C2190,1720 2500,1790 2850,1800 C3200,1810 3520,1770 3840,1750 L3840,2160 L0,2160 Z" fill="url(#hillGrad)"/>
+  </g>
+
+  <!-- Sakura branch silhouette (top-right) -->
+  <g transform="translate(2800,250) scale(1.1)">
+    <path d="M-400,200 C-150,150 0,80 220,40 C300,25 360,30 460,10 C530,-5 570,-25 650,-60" fill="none" stroke="url(#branchGrad)" stroke-width="18" stroke-linecap="round"/>
+    <path d="M-160,160 C-40,110 60,80 160,70" fill="none" stroke="url(#branchGrad)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M120,60 C220,30 320,20 420,25" fill="none" stroke="url(#branchGrad)" stroke-width="10" stroke-linecap="round"/>
+  </g>
+
+  <!-- Blossoms -->
+  <g opacity="0.92" filter="url(#petalGlow)">
+    <!-- a single blossom definition drawn multiple times -->
+    <g id="blossom">
+      <g>
+        <circle cx="0" cy="0" r="16" fill="url(#petalGrad)"/>
+        <circle cx="18" cy="-4" r="14" fill="url(#petalGrad)"/>
+        <circle cx="-14" cy="-6" r="13" fill="url(#petalGrad)"/>
+        <circle cx="-3" cy="16" r="12" fill="url(#petalGrad)"/>
+        <circle cx="14" cy="13" r="11" fill="url(#petalGrad)"/>
+        <circle cx="3" cy="4" r="5" fill="#f472b6"/>
+      </g>
+    </g>
+    <!-- scatter blossoms near branch -->
+    <use href="#blossom" x="3250" y="260" transform="scale(1.2)"/>
+    <use href="#blossom" x="3050" y="360" transform="scale(0.9)"/>
+    <use href="#blossom" x="3420" y="320" transform="scale(1.05)"/>
+    <use href="#blossom" x="3120" y="220" transform="scale(0.8)"/>
+    <use href="#blossom" x="3320" y="180" transform="scale(0.95)"/>
+    <use href="#blossom" x="3550" y="260" transform="scale(0.85)"/>
+  </g>
+
+  <!-- Floating petals -->
+  <g opacity="0.7" filter="url(#petalGlow)">
+    <ellipse cx="3000" cy="520" rx="12" ry="6" fill="url(#petalGrad)" transform="rotate(-18 3000 520)"/>
+    <ellipse cx="3200" cy="700" rx="10" ry="5" fill="url(#petalGrad)" transform="rotate(12 3200 700)"/>
+    <ellipse cx="3400" cy="580" rx="14" ry="7" fill="url(#petalGrad)" transform="rotate(-8 3400 580)"/>
+    <ellipse cx="3100" cy="860" rx="11" ry="5.5" fill="url(#petalGrad)" transform="rotate(16 3100 860)"/>
+    <ellipse cx="3550" cy="820" rx="13" ry="6.5" fill="url(#petalGrad)" transform="rotate(-22 3550 820)"/>
+    <ellipse cx="2900" cy="780" rx="9" ry="4.5" fill="url(#petalGrad)" transform="rotate(6 2900 780)"/>
+    <ellipse cx="2750" cy="980" rx="14" ry="7" fill="url(#petalGrad)" transform="rotate(-12 2750 980)"/>
+    <ellipse cx="3300" cy="1000" rx="12" ry="6" fill="url(#petalGrad)" transform="rotate(14 3300 1000)"/>
+  </g>
+</svg>
+
+

@@ -1,17 +1,25 @@
 {
-  "name": "opc-rtpm-tcp-tester",
-  "version": "0.3.0",
-  "description": "TCP connectivity tester - OPC UA Server to RTPM Server",
+  "name": "opcua-rtpm-diagnostic-tool",
+  "version": "0.3.1",
+  "description": "OPC UA to RTPM callback path diagnostic tool",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder"
   },
-  "keywords": ["electron", "tcp", "port-scanner", "opc-ua", "rtpm"],
+  "keywords": [
+    "electron",
+    "tcp",
+    "port-scanner",
+    "opc-ua",
+    "rtpm"
+  ],
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "node-opcua": "^2.129.0"
+    "node-opcua": "^2.129.0",
+    "npm": "^10.9.4",
+    "start": "^5.1.0"
   },
   "optionalDependencies": {
     "cap": "^0.3.0"
@@ -21,8 +29,8 @@
     "electron-builder": "24.6.4"
   },
   "build": {
-    "appId": "com.aperturelabs.opc-rtpm-tester",
-    "productName": "OPCUA Callback Probe",
+    "appId": "com.aperturelabs.opcua-rtpm-diagnostic-tool",
+    "productName": "OPCUA-RTPM Diagnostic Tool",
     "asar": true,
     "directories": {
       "output": "dist"
@@ -35,7 +43,7 @@
       "target": [
         "portable"
       ],
-      "artifactName": "OPCUA-Callback-Probe-${version}-${os}-${arch}.${ext}"
+      "artifactName": "OPCUA-RTPM Diagnostic Tool.${ext}"
     }
   }
 }

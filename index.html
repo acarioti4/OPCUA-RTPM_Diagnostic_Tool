@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OPC UA to RTPM Callback Path Diagnostics</title>
+  <title>OPCUA-RTPM Diagnostic Tool</title>
   <style>
     :root {
       --container-bg: #ffffff;
@@ -15,26 +15,36 @@
       --accent: #667eea; /* single solid accent */
       --bg: #f3f4f6;     /* single solid background */
       --shadow-accent: rgba(102, 126, 234, 0.35); /* glow color */
-      /* Lightsaber colors */
-      --saber-blue: #2563eb;
-      --saber-green: #10b981;
-      --saber-red: #b91c1c;
+      /* Glass + background defaults */
+      --bg-image: none;
+      --accent-2: #7ea2ff;
+      --glass-bg: rgba(255,255,255,0.45);
+      --glass-stroke: rgba(0,0,0,0.06);
+      --glass-shadow: rgba(0, 0, 0, 0.30);
+      --overlay-scrim: rgba(255,255,255,0.06);
     }
 
-    /* Light: Jedi - Light Side */
+    /* Light theme */
     .theme-light {
-      --container-bg: #d2b48c; /* Jedi Tunic Tan (form/container area) */
-      --text-primary: #1f2937; /* slate-800 */
+      --container-bg: #ffffff;
+      --text-primary: #111827; /* slate-900 */
       --text-muted: #6b7280;   /* slate-500 */
-      --results-bg: #f3f4f6;   /* slate-100 */
-      --log-bg: #e6f4ff;       /* holocron glow */
-      --log-border: #60a5fa;   /* blue-400 */
-      --accent: #2563eb;       /* Jedi saber blue */
-      --bg: #4b3621;           /* Jedi Cloak Brown (window background) */
-      --shadow-accent: rgba(37, 99, 235, 0.35);
+      --results-bg: #f9fafb;   /* slate-50 */
+      --log-bg: #eef6ff;       /* subtle info */
+      --log-border: #93c5fd;   /* blue-300 */
+      --accent: #ec4899;       /* sakura pink */
+      --accent-2: #f472b6;     /* lighter pink */
+      --bg: #f3f4f6;           /* app background */
+      --shadow-accent: rgba(37, 99, 235, 0.25);
+      --keyline: rgba(0,0,0,0.06);
+      --header-bg: linear-gradient(180deg, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0.55) 100%);
+      --bg-image: url('assets/light-sakura.svg');
+      --glass-bg: rgba(255,255,255,0.52);
+      --glass-stroke: rgba(255,255,255,0.65);
+      --overlay-scrim: rgba(255,255,255,0.10);
     }
 
-    /* Dark: Darth Vader's Suit */
+    /* Dark theme */
     .theme-dark {
       --container-bg: #1a1b1f; /* graphite armor */
       --text-primary: #e5e7eb; /* imperial light */
@@ -42,9 +52,16 @@
       --results-bg: #111215;   /* cockpit black */
       --log-bg: #0d0e11;       /* deeper black */
       --log-border: #ef4444;   /* sith red accent */
-      --accent: #b91c1c;       /* lightsaber crimson */
+      --accent: #8b5cf6;       /* indigo for night */
+      --accent-2: #60a5fa;     /* blue highlight */
       --bg: #0a0b0d;           /* void black */
       --shadow-accent: rgba(185, 28, 28, 0.35);
+      --keyline: rgba(255,255,255,0.08);
+      --header-bg: linear-gradient(180deg, rgba(17,18,21,0.75) 0%, rgba(10,11,13,0.65) 100%);
+      --bg-image: url('assets/dark-starry.svg');
+      --glass-bg: rgba(14,15,20,0.54);
+      --glass-stroke: rgba(255,255,255,0.08);
+      --overlay-scrim: rgba(0,0,0,0.35);
     }
 
     * {
@@ -58,6 +75,31 @@
       background: var(--bg);
       padding: 20px;
       min-height: 100vh;
+      color: var(--text-primary);
+    }
+
+    /* Thematic high-res background + scrim for readability */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image: var(--bg-image);
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      z-index: -2;
+      will-change: transform;
+      transform: translateZ(0);
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(1200px 800px at 50% 15%, rgba(255,255,255,0.12), transparent 50%),
+        linear-gradient(180deg, var(--overlay-scrim) 0%, rgba(0,0,0,0.0) 60%, rgba(0,0,0,0.25) 100%);
+      pointer-events: none;
     }
 
     /* removed gradient animations to keep solid tones */
@@ -65,48 +107,33 @@
     .container {
       max-width: 850px;
       margin: 0 auto;
-      background: var(--container-bg);
-      border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      background: var(--glass-bg);
+      border-radius: 16px;
+      box-shadow: 0 30px 80px var(--glass-shadow);
+      border: 1px solid var(--glass-stroke);
+      -webkit-backdrop-filter: saturate(160%) blur(20px);
+      backdrop-filter: saturate(160%) blur(20px);
       overflow: hidden;
+      position: relative;
     }
 
+
     .header {
-      /* 50/50 blue (top) / green (bottom) split horizontally */
-      background: linear-gradient(180deg, var(--saber-blue) 0 50%, var(--saber-green) 50% 100%);
-      color: white;
+      background: var(--header-bg);
+      color: var(--text-primary);
       padding: 30px;
       text-align: center;
       position: relative;
-      /* white glow border plus existing accent glows */
-      box-shadow:
-        0 0 0 2px rgba(255,255,255,0.85) inset,
-        0 0 10px rgba(255,255,255,0.45) inset,
-        0 6px 20px var(--shadow-accent),
-        0 0 24px var(--shadow-accent);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      border-bottom: 1px solid var(--glass-stroke);
     }
-    body.theme-dark .header {
-      background: var(--accent);
-      color: var(--text-primary);
-    }
-    /* Jedi theme: subtle white glow along the gradient split line */
-    body.theme-light .header::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 50%;
-      height: 1px;
-      transform: translateY(-0.5px);
-      background: rgba(255,255,255,0.9);
-      box-shadow:
-        0 0 6px rgba(255,255,255,0.9),
-        0 0 12px rgba(255,255,255,0.6);
-    }
+    body.theme-dark .header { color: var(--text-primary); }
+
 
     .header h1 {
       font-size: 24px;
       margin-bottom: 5px;
+
     }
 
     .header p {
@@ -115,14 +142,15 @@
     }
     /* Ensure title/subtitle remain readable across gradients */
     .header h1, .header p {
-      text-shadow: 0 1px 2px rgba(0,0,0,0.65);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
     }
+
 
     /* Tabs */
     .tabs {
       display: flex;
       gap: 8px;
-      border-bottom: 2px solid rgba(0,0,0,0.06);
+      border-bottom: 1px solid var(--keyline);
       margin-bottom: 16px;
     }
     .tab-button {
@@ -156,55 +184,6 @@
       gap: 10px;
     }
 
-    /* Settings dropdown */
-    .settings {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-    }
-    .settings details {
-      position: relative;
-    }
-    .settings summary {
-      list-style: none;
-      cursor: pointer;
-      font-weight: 700;
-      font-size: 12px;
-      border-radius: 9999px;
-      padding: 6px 12px;
-      background: rgba(255,255,255,0.85);
-      color: #111827;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-      user-select: none;
-    }
-    .settings summary::-webkit-details-marker { display: none; }
-    .settings details[open] summary {
-      box-shadow: 0 4px 12px rgba(0,0,0,0.16);
-    }
-    .settings .menu {
-      position: absolute;
-      margin-top: 8px;
-      min-width: 220px;
-      background: var(--container-bg);
-      color: var(--text-primary);
-      border-radius: 10px;
-      box-shadow: 0 16px 40px rgba(0,0,0,0.18);
-      border: 2px solid rgba(0,0,0,0.06);
-      padding: 10px;
-      z-index: 10;
-    }
-    .setting-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 13px;
-      padding: 8px 6px;
-      border-radius: 8px;
-    }
-    .setting-item:hover {
-      background: rgba(0,0,0,0.04);
-    }
-
     .theme-chip {
       border: none;
       border-radius: 9999px;
@@ -213,9 +192,14 @@
       font-size: 12px;
       cursor: pointer;
       transition: transform 0.15s ease, box-shadow 0.15s ease;
-      background: rgba(255,255,255,0.85);
-      color: #111827;
+      background: rgba(255,255,255,0.5);
+      -webkit-backdrop-filter: saturate(160%) blur(12px);
+      backdrop-filter: saturate(160%) blur(12px);
+      color: var(--text-primary);
+      border: 1px solid var(--glass-stroke);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.12);
     }
+
 
     .theme-chip:hover {
       transform: translateY(-1px);
@@ -252,16 +236,35 @@
     input {
       width: 100%;
       padding: 12px;
-      border: 2px solid #e0e0e0;
-      border-radius: 6px;
+      border: 1px solid var(--glass-stroke);
+      border-radius: 10px;
       font-size: 14px;
-      transition: border-color 0.3s;
+      transition: border-color 0.3s, background-color 0.3s, box-shadow 0.3s;
+      background: rgba(255,255,255,0.85);
+      -webkit-backdrop-filter: saturate(150%) blur(8px);
+      backdrop-filter: saturate(150%) blur(8px);
+      color: var(--text-primary);
+      caret-color: var(--accent);
     }
 
     input:focus {
       outline: none;
       border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
     }
+    input::placeholder { color: rgba(17,24,39,0.5); }
+    .btn:focus-visible, .theme-chip:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    body.theme-dark input {
+      border-color: rgba(255,255,255,0.14);
+      background: #0f1117;
+      color: var(--text-primary);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    body.theme-dark input::placeholder { color: rgba(229,231,235,0.48); }
+    body.theme-dark input:focus { box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.28); }
 
     .port-range {
       display: grid;
@@ -270,17 +273,28 @@
     }
 
     .btn {
-      background: var(--accent);
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
       color: white;
       border: none;
       padding: 14px 28px;
-      border-radius: 6px;
+      border-radius: 12px;
       font-size: 16px;
       font-weight: 600;
       cursor: pointer;
       width: 100%;
       transition: transform 0.2s, box-shadow 0.2s;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.12), 0 0 12px rgba(0,0,0,0), 0 0 0 1px rgba(255,255,255,0.04) inset;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.1) inset;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.0) 40%);
+      mix-blend-mode: soft-light;
+      pointer-events: none;
     }
 
     .btn:hover:not(:disabled) {
@@ -300,19 +314,22 @@
     }
     .progress-outer {
       height: 18px;
-      background: rgba(0,0,0,0.15);
-      border-radius: 9999px;
+      background: rgba(255,255,255,0.25);
+      border-radius: 14px;
       overflow: hidden;
-      border: 2px solid rgba(255,255,255,0.35);
-      box-shadow: inset 0 0 10px rgba(0,0,0,0.25);
+      border: 1px solid var(--glass-stroke);
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.15), 0 8px 20px rgba(0,0,0,0.15);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
     }
     .progress-inner {
       height: 100%;
       width: 0%;
-      background: linear-gradient(90deg, rgba(255,255,255,0.85), rgba(255,255,255,0.65));
-      box-shadow: 0 0 14px var(--shadow-accent);
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
+      box-shadow: 0 0 24px var(--shadow-accent);
       transition: width 300ms ease;
     }
+
     .progress-meta {
       display: flex;
       justify-content: space-between;
@@ -374,21 +391,39 @@
     }
 
     .results-list {
-      background: var(--results-bg);
-      border-radius: 8px;
+      background: rgba(255,255,255,0.45);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      border-radius: 12px;
       padding: 20px;
       max-height: 300px;
       overflow-y: auto;
+      border: 1px solid var(--glass-stroke);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12) inset;
+    }
+    .category-title {
+      margin: 14px 0 8px;
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-top: 1px solid var(--keyline);
+      padding-top: 10px;
     }
 
     .result-item {
       padding: 12px;
       margin-bottom: 10px;
-      border-radius: 6px;
+      border-radius: 10px;
       border-left: 4px solid;
-      background: var(--container-bg);
+      background: rgba(255,255,255,0.6);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--glass-stroke);
       animation: fadeSlideIn 300ms ease-out;
     }
+
 
     @keyframes fadeSlideIn {
       from { opacity: 0; transform: translateY(6px); }
@@ -409,6 +444,14 @@
 
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
     }
 
     .result-item.open { border-left-color: #28a745; }
@@ -435,9 +478,11 @@
     .log-info {
       margin-top: 20px;
       padding: 15px;
-      background: var(--log-bg);
-      border: 2px solid var(--log-border);
-      border-radius: 8px;
+      background: rgba(255,255,255,0.5);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--glass-stroke);
+      border-radius: 12px;
       font-size: 14px;
     }
 
@@ -460,15 +505,18 @@
     }
     .about-overlay.active { display: flex; }
     .about-modal {
-      background: var(--container-bg);
+      background: var(--glass-bg);
       color: var(--text-primary);
-      border-radius: 12px;
+      border-radius: 16px;
       padding: 24px;
       width: min(480px, 90vw);
       box-shadow: 0 16px 40px var(--shadow-accent, rgba(0,0,0,0.35));
-      border: 2px solid rgba(0,0,0,0.06);
+      border: 1px solid var(--glass-stroke);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
       position: relative;
     }
+
     .about-title { margin-bottom: 8px; font-size: 18px; font-weight: 800; letter-spacing: 0.3px; }
     .about-body { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
     .about-meta { margin-top: 12px; padding-top: 12px; border-top: 2px dashed rgba(0,0,0,0.08); display: grid; row-gap: 6px; }
@@ -483,28 +531,33 @@
       color: var(--text-muted);
     }
     .about-close:hover { color: var(--text-primary); }
+
+    /* Reduced motion: already handled below */
+
+    /* Backdrop-filter fallback for older GPUs/drivers */
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .container,
+      .results-list,
+      .result-item,
+      .about-modal,
+      .theme-chip,
+      input,
+      .progress-outer {
+        background: var(--container-bg);
+      }
+      .btn { filter: saturate(110%); }
+      body::after {
+        background: linear-gradient(180deg, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0.0) 40%);
+      }
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>OPC UA to RTPM Callback Path Diagnostics</h1>
-      <p>Connectivity and Callback Path Probe</p>
-      <div class="settings">
-        <details id="settingsMenu">
-          <summary>Settings</summary>
-          <div class="menu">
-            <label class="setting-item">
-              <input type="checkbox" id="toggleShowTask">
-              Show Current Task
-            </label>
-          </div>
-        </details>
-      </div>
-      <div class="theme-toggle">
-        <button type="button" id="btnLight" class="theme-chip light">Jedi</button>
-        <button type="button" id="btnDark" class="theme-chip dark">Sith</button>
-      </div>
+      <h1>OPCUA-RTPM Diagnostic Tool</h1>
+      <p>Connectivity and Callback Path Diagnostics</p>
+      <!-- Settings are available in the native menu bar -->
     </div>
 
     <div class="content">
@@ -598,16 +651,38 @@
           <div><strong>Version:</strong> <span id="aboutVersion">-</span></div>
           <div>2025</div>
         </div>
+        <div style="margin-top:10px;">
+          <a href="#" id="aboutLink">github.com/acarioti4/OPCUA-RTPM_Diagnostic_Tool</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keybinds Modal -->
+  <div class="about-overlay" id="keybindsOverlay" aria-hidden="true">
+    <div class="about-modal" role="dialog" aria-modal="true" aria-labelledby="keybindsTitle">
+      <button class="about-close" id="keybindsClose" aria-label="Close Keybinds">&times;</button>
+      <div class="about-title" id="keybindsTitle">Keybinds</div>
+      <div class="about-body">
+        <div class="about-meta">
+          <div><strong>Run Probe:</strong> Ctrl+Enter</div>
+          <div><strong>Focus Endpoint URL:</strong> Ctrl+L</div>
+          <div><strong>Toggle Show Current Task:</strong> Ctrl+T</div>
+          <div><strong>Theme - Light:</strong> Ctrl+Alt+L</div>
+          <div><strong>Theme - Dark:</strong> Ctrl+Alt+D</div>
+          <div><strong>Help - Keybinds:</strong> Ctrl+/</div>
+          <div><strong>Help - About:</strong> F1</div>
+        </div>
       </div>
     </div>
   </div>
 
   <script>
-    const btnLight = document.getElementById('btnLight');
-    const btnDark = document.getElementById('btnDark');
     const aboutOverlay = document.getElementById('aboutOverlay');
     const aboutClose = document.getElementById('aboutClose');
     const aboutVersion = document.getElementById('aboutVersion');
+    const keybindsOverlay = document.getElementById('keybindsOverlay');
+    const keybindsClose = document.getElementById('keybindsClose');
     const resultsSection = document.getElementById('resultsSection');
     const resultsList = document.getElementById('resultsList');
     const logInfo = document.getElementById('logInfo');
@@ -621,27 +696,29 @@
     const currentTaskText = document.getElementById('currentTaskText');
     const toggleShowTask = document.getElementById('toggleShowTask');
 
-    // Theme handling
-    function setActiveChip(theme) {
-      btnLight.classList.toggle('active', theme === 'light');
-      btnDark.classList.toggle('active', theme === 'dark');
-    }
+    // Theme handling (UI toggle removed; default to dark)
     function applyTheme(theme) {
       document.body.classList.remove('theme-light', 'theme-dark');
       if (theme === 'dark') {
         document.body.classList.add('theme-dark');
       } else {
         document.body.classList.add('theme-light');
-        theme = 'light';
       }
-      setActiveChip(theme);
-      localStorage.setItem('opcRtpmTheme', theme);
     }
-    const savedThemeRaw = localStorage.getItem('opcRtpmTheme') || 'light';
-    const savedTheme = savedThemeRaw === 'matrix' ? 'dark' : savedThemeRaw;
-    applyTheme(savedTheme);
-    btnLight.addEventListener('click', () => applyTheme('light'));
-    btnDark.addEventListener('click', () => applyTheme('dark'));
+    // Force default to dark on startup
+    const savedTheme = 'dark';
+    applyTheme('dark');
+    // Sync theme with native menu
+    if (window.electronAPI && window.electronAPI.onThemeSet) {
+      window.electronAPI.onThemeSet(({ theme } = {}) => {
+        if (theme === 'light' || theme === 'dark') {
+          applyTheme(theme);
+        }
+      });
+    }
+    if (window.electronAPI && window.electronAPI.themeReady) {
+      window.electronAPI.themeReady({ theme: savedTheme });
+    }
 
     // Settings: Show Current Task toggle
     const savedShowTask = localStorage.getItem('opcRtpmShowTask') === 'true';
@@ -658,9 +735,17 @@
         applyShowTaskSetting(!!e.target.checked);
       });
     }
+    // Sync with native menu
+    if (window.electronAPI && window.electronAPI.onSettingsSet) {
+      window.electronAPI.onSettingsSet(({ showTask } = {}) => {
+        applyShowTaskSetting(!!showTask);
+      });
+    }
+    if (window.electronAPI && window.electronAPI.settingsReady) {
+      window.electronAPI.settingsReady({ showTask: savedShowTask });
+    }
 
     // Progress helpers
-    let progressTimer = null;
     let progressValue = 0;
     function setProgress(value, label) {
       progressValue = Math.max(0, Math.min(100, Math.floor(value)));
@@ -671,28 +756,21 @@
     function setCurrentTask(text) {
       if (currentTaskText) currentTaskText.textContent = text || '';
     }
-    function startFakeProgress() {
+    function startProgressUI() {
       setProgress(0, 'Starting…');
       setCurrentTask('Initializing probe…');
       if (runProgress) {
         runProgress.style.display = 'block';
         runProgress.setAttribute('aria-hidden', 'false');
       }
-      if (progressTimer) clearInterval(progressTimer);
-      progressTimer = setInterval(() => {
-        // advance slowly up to 90% to indicate activity
-        if (progressValue < 90) {
-          setProgress(progressValue + 2, 'Running…');
-        }
-      }, 500);
     }
-    function finishProgress(success) {
-      if (progressTimer) {
-        clearInterval(progressTimer);
-        progressTimer = null;
-      }
-      setProgress(100, success ? 'Completed' : 'Failed');
-      setCurrentTask(success ? 'Completed.' : 'Failed.');
+
+    // Live progress from backend
+    if (window.electronAPI && window.electronAPI.onProbeProgress) {
+      window.electronAPI.onProbeProgress(({ percent, label, task }) => {
+        if (typeof percent === 'number') setProgress(percent, label);
+        if (typeof task === 'string') setCurrentTask(task);
+      });
     }
 
     // About handlers
@@ -705,18 +783,75 @@
       aboutOverlay.classList.remove('active');
       aboutOverlay.setAttribute('aria-hidden', 'true');
     }
+    function showKeybinds() {
+      keybindsOverlay.classList.add('active');
+      keybindsOverlay.setAttribute('aria-hidden', 'false');
+    }
+    function hideKeybinds() {
+      keybindsOverlay.classList.remove('active');
+      keybindsOverlay.setAttribute('aria-hidden', 'true');
+    }
     if (window.electronAPI && window.electronAPI.onShowAbout) {
       window.electronAPI.onShowAbout(({ version } = {}) => {
         showAbout(version);
       });
     }
+    if (window.electronAPI && window.electronAPI.onShowKeybinds) {
+      window.electronAPI.onShowKeybinds(() => {
+        showKeybinds();
+      });
+    }
     aboutClose.addEventListener('click', hideAbout);
+    const aboutLink = document.getElementById('aboutLink');
+    if (aboutLink) {
+      aboutLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (window.electronAPI && window.electronAPI.openExternal) {
+          window.electronAPI.openExternal('https://github.com/acarioti4/OPCUA-RTPM_Diagnostic_Tool');
+        }
+      });
+    }
+    keybindsClose.addEventListener('click', hideKeybinds);
     aboutOverlay.addEventListener('click', (e) => {
       if (e.target === aboutOverlay) hideAbout();
     });
+    keybindsOverlay.addEventListener('click', (e) => {
+      if (e.target === keybindsOverlay) hideKeybinds();
+    });
     document.addEventListener('keydown', (e) => {
+      // modal close
       if (e.key === 'Escape' && aboutOverlay.classList.contains('active')) {
         hideAbout();
+      }
+      if (e.key === 'Escape' && keybindsOverlay.classList.contains('active')) {
+        hideKeybinds();
+      }
+      // Ctrl+Enter => Run Probe
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (!btnRunProbe.disabled) {
+          btnRunProbe.click();
+        }
+      }
+      // Ctrl+L => focus endpoint input
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        const ep = document.getElementById('endpointUrl');
+        if (ep) ep.focus();
+      }
+      // Ctrl+/ => open keybinds
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        showKeybinds();
+      }
+      // Theme hotkeys (in addition to native menu accelerators)
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        applyTheme('light');
+      }
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        applyTheme('dark');
       }
     });
 
@@ -744,17 +879,10 @@
 
     probeForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      // morph button into a progress bar
-      if (!btnRunProbe.dataset.originalLabel) {
-        btnRunProbe.dataset.originalLabel = btnRunProbe.textContent || 'Run';
-      }
       btnRunProbe.disabled = true;
-      btnRunProbe.classList.add('progressing');
-      btnRunProbe.setAttribute('aria-busy', 'true');
-      btnRunProbe.innerHTML = '<div class="inline-progress" role="progressbar" aria-label="Running"><div class="bar"></div></div>';
 
       // show determinate progress bar
-      startFakeProgress();
+      startProgressUI();
 
       resultsList.innerHTML = '';
       logInfo.textContent = '';
@@ -775,6 +903,51 @@
 
         const res = await window.electronAPI.runOpcuaProbe(params);
         const { probe, logFileName } = res || {};
+
+        if (probe && probe.error) {
+          alert('Probe error: ' + probe.error);
+        }
+
+        // Endpoint Security
+        const secSec = ensureSection('securitySection', 'Endpoint Security');
+        if (probe && probe.security) {
+          const adv = probe.security.advertisedAnonymous;
+          prependItem(secSec, adv ? 'open' : 'closed', 'Anonymous advertised', adv ? 'Yes' : 'No');
+          // Negotiated channel (actual connection)
+          if (probe.security.negotiatedChannel && (probe.security.negotiatedChannel.securityMode || probe.security.negotiatedChannel.securityPolicyUri)) {
+            const ch = probe.security.negotiatedChannel;
+            const policy = ch.securityPolicyUri || '(unknown)';
+            const extra = (ch.policyShort || ch.classification) ? ` (${[ch.policyShort, ch.classification].filter(Boolean).join('; ')})` : '';
+            prependItem(secSec, 'open', 'Negotiated channel', `mode=${ch.securityMode || '(unknown)'} policy=${policy}${extra}`);
+            if (ch.serverCertificateSummary) {
+              prependItem(secSec, 'open', 'Server certificate', ch.serverCertificateSummary);
+            }
+          }
+          if (probe.security.endpointsQueried && Array.isArray(probe.security.anonymousEndpoints)) {
+            if (probe.security.anonymousEndpoints.length) {
+              probe.security.anonymousEndpoints.forEach((ed, idx) => {
+                prependItem(secSec, 'open', `Anonymous endpoint [${idx + 1}]`, `${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri}`);
+              });
+            }
+          }
+          // List all discovered endpoints with classification and tokens
+          if (probe.security.endpointsQueried && Array.isArray(probe.security.allEndpoints) && probe.security.allEndpoints.length) {
+            probe.security.allEndpoints.forEach((ed, idx) => {
+              const extra = (ed.policyShort || ed.classification) ? ` (${[ed.policyShort, ed.classification].filter(Boolean).join('; ')})` : '';
+              const tokens = Array.isArray(ed.userTokens) && ed.userTokens.length ? `; tokens=${ed.userTokens.join(', ')}` : '';
+              prependItem(secSec, 'open', `Endpoint [${idx + 1}]`, `${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri}${extra}${tokens}`);
+            });
+          }
+          const anonSess = probe.security.anonymousSession || {};
+          if (anonSess.success) {
+            prependItem(secSec, 'open', 'Anonymous session', 'Succeeded');
+          } else {
+            const err = anonSess.error ? String(anonSess.error) : 'Failed';
+            prependItem(secSec, 'closed', 'Anonymous session', err);
+          }
+        } else {
+          prependItem(secSec, 'warning', 'Security info', 'Unavailable');
+        }
 
         // Client callback info
         const cbSec = ensureSection('clientInfoSection', 'Client Callback Info');
@@ -833,23 +1006,14 @@
             Location: Application logs folder
           `;
         }
-        // hint user-level task messages (human legible only)
-        setCurrentTask('Connecting to server…');
 
       } catch (err) {
         alert('Probe error: ' + (err && err.message ? err.message : String(err)));
-        finishProgress(false);
+        // fallback progress update if backend couldn't report failure
+        setProgress(100, 'Failed');
+        setCurrentTask('Failed.');
       } finally {
         btnRunProbe.disabled = false;
-        btnRunProbe.classList.remove('progressing');
-        btnRunProbe.removeAttribute('aria-busy');
-        btnRunProbe.textContent = btnRunProbe.dataset.originalLabel || 'Run Callback Path Probe';
-        // finalize progress
-        if (!progressTimer) {
-          // already finished due to error
-        } else {
-          finishProgress(true);
-        }
       }
     });
   </script>

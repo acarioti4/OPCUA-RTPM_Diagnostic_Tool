@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
 const path = require('path');
 const net = require('net');
 const fs = require('fs');
@@ -41,7 +41,6 @@ function createWindow() {
 
   // Build application menu with Help > About
   const template = [
-    // App/Menu skeleton (keep default File/Edit/View where possible via roles)
     {
       label: 'File',
       submenu: [
@@ -49,35 +48,77 @@ function createWindow() {
       ]
     },
     {
-      label: 'Edit',
+      label: 'Settings',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        {
+          id: 'show-current-task',
+          label: 'Show Current Task',
+          type: 'checkbox',
+          checked: false,
+          accelerator: 'CmdOrCtrl+T',
+          click: (menuItem) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('settings:set', { showTask: !!menuItem.checked });
+            }
+          }
+        },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
+        {
+          label: 'Theme',
+          submenu: [
+            {
+              id: 'theme-light',
+              label: 'Light',
+              type: 'radio',
+              checked: true,
+              accelerator: 'CmdOrCtrl+Alt+L',
+              click: () => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('theme:set', { theme: 'light' });
+                }
+              }
+            },
+            {
+              id: 'theme-dark',
+              label: 'Dark',
+              type: 'radio',
+              checked: false,
+              accelerator: 'CmdOrCtrl+Alt+D',
+              click: () => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('theme:set', { theme: 'dark' });
+                }
+              }
+            }
+          ]
+        },
       ]
     },
     {
       label: 'Help',
       submenu: [
         {
+          label: 'Keybinds',
+          accelerator: 'CmdOrCtrl+/',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('show-keybinds', {});
+            }
+          }
+        },
+        {
+          label: 'Repository',
+          click: () => {
+            try {
+              shell.openExternal('https://github.com/acarioti4/OPCUA-RTPM_Diagnostic_Tool');
+            } catch {
+              // ignore
+            }
+          }
+        },
+        {
           label: 'About',
+          accelerator: 'F1',
           click: () => {
             if (mainWindow && !mainWindow.isDestroyed()) {
               const version = typeof app.getVersion === 'function' ? app.getVersion() : '';
@@ -93,6 +134,37 @@ function createWindow() {
 }
 
 app.whenReady().then(createWindow);
+
+// Open external links from renderer
+ipcMain.handle('app:open-external', async (_event, url) => {
+  if (typeof url === 'string' && url.trim()) {
+    try {
+      await shell.openExternal(url);
+    } catch {
+      // ignore
+    }
+  }
+});
+
+// Sync menu checkbox state from renderer's persisted settings
+ipcMain.on('settings:ready', (_event, data = {}) => {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const item = menu.getMenuItemById('show-current-task');
+  if (item) {
+    item.checked = !!data.showTask;
+  }
+});
+
+ipcMain.on('theme:ready', (_event, data = {}) => {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const lightItem = menu.getMenuItemById('theme-light');
+  const darkItem = menu.getMenuItemById('theme-dark');
+  const theme = (data && data.theme) === 'dark' ? 'dark' : 'light';
+  if (lightItem) lightItem.checked = theme === 'light';
+  if (darkItem) darkItem.checked = theme === 'dark';
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -165,6 +237,54 @@ function getClientSocketInfo(client) {
     // ignore
   }
   return null;
+}
+
+function sendProgress(event, payload) {
+  try {
+    if (event && event.sender) {
+      event.sender.send('diagnostics:progress', payload || {});
+    }
+  } catch {
+    // ignore send errors
+  }
+}
+
+function withTimeout(promise, ms, message = 'Operation timed out') {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), Math.max(1, ms));
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
+// ---------------------------------------
+// Security helpers (policy classification)
+// ---------------------------------------
+function extractPolicyName(policyUriOrName) {
+  if (!policyUriOrName) return 'None';
+  const s = String(policyUriOrName);
+  const idx = s.indexOf('#');
+  return idx >= 0 ? s.slice(idx + 1) : s;
+}
+
+function classifySecurityPolicy(policyUriOrName) {
+  const name = extractPolicyName(policyUriOrName);
+  switch (name) {
+    case 'None':
+      return { short: 'None', classification: 'None (insecure)' };
+    case 'Basic128Rsa15':
+      return { short: 'Basic128Rsa15', classification: 'Legacy/weak (avoid in production)' };
+    case 'Basic256':
+      return { short: 'Basic256', classification: 'Legacy RSA (better than 128, still old)' };
+    case 'Basic256Sha256':
+      return { short: 'Basic256Sha256', classification: 'Good RSA-SHA256' };
+    case 'Aes128_Sha256_RsaOaep':
+      return { short: 'AES-128', classification: 'Modern AES-128 (recommended)' };
+    case 'Aes256_Sha256_RsaPss':
+      return { short: 'AES-256', classification: 'Modern AES-256 (strongest, recommended)' };
+    default:
+      return { short: name, classification: 'Unknown policy' };
+  }
 }
 
 async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts = [], sourceHost }) {
@@ -320,11 +440,29 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
     listenersAfter: [],
     subscriptionCreated: false,
     monitoredItemNodeId: nodeId,
-    synMonitor: { enabled: synMonitorSeconds > 0, method: null, events: [] }
+    synMonitor: { enabled: synMonitorSeconds > 0, method: null, events: [] },
+    security: {
+      endpointsQueried: false,
+      advertisedAnonymous: false,
+      anonymousEndpoints: [],
+      anonymousSession: { success: false, error: null },
+      allEndpoints: [],
+      negotiatedChannel: {
+        securityMode: null,
+        securityPolicyUri: null,
+        policyShort: null,
+        classification: null,
+        serverCertificateSummary: null
+      }
+    }
   };
+
+  // Initial progress
+  sendProgress(event, { percent: 5, label: 'Starting…', task: 'Initializing probe…' });
 
   // Capture listeners before connecting
   probe.listenersBefore = await listProcessListeners();
+  sendProgress(event, { percent: 10, label: 'Collecting environment…', task: 'Captured initial listeners' });
 
   const client = opcua.OPCUAClient.create({
     endpointMustExist: false,
@@ -336,11 +474,148 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
 
   let session = null;
   let subscription = null;
+  let monitoredItem = null;
   try {
-    await client.connect(endpointUrl);
+    // Connect with explicit timeout to avoid hanging indefinitely when endpoint is unreachable
+    sendProgress(event, { percent: 15, label: 'Connecting…', task: 'Connecting to OPC UA server' });
+    await withTimeout(client.connect(endpointUrl), 8000, 'Timeout connecting to OPC UA server');
+    sendProgress(event, { percent: 35, label: 'Connected', task: 'Connected to server' });
     probe.clientSocket = getClientSocketInfo(client);
 
-    session = await client.createSession();
+    // Get endpoints and check for anonymous user token policies
+    try {
+      const endpoints = await withTimeout(client.getEndpoints({ endpointUrl }), 6000, 'Timeout getting endpoints');
+      probe.security.endpointsQueried = Array.isArray(endpoints) && endpoints.length > 0;
+      if (Array.isArray(endpoints)) {
+        const anonEndpoints = [];
+        const allEndpoints = [];
+        for (const ed of endpoints) {
+          const tokens = Array.isArray(ed.userIdentityTokens) ? ed.userIdentityTokens : [];
+          const userTokenTypes = tokens.map(t => {
+            const tt = t && t.tokenType;
+            const name = (opcua && opcua.UserTokenType && typeof tt === 'number') ? opcua.UserTokenType[tt] : String(tt);
+            return name || 'Unknown';
+          });
+          const hasAnon = tokens.some(t => t.tokenType === opcua.UserTokenType.Anonymous);
+          const policyUri = ed.securityPolicyUri;
+          const policyInfo = classifySecurityPolicy(policyUri);
+          const securityMode = String(ed.securityMode);
+          allEndpoints.push({
+            endpointUrl: ed.endpointUrl || endpointUrl,
+            securityMode,
+            securityPolicyUri: policyUri,
+            policyShort: policyInfo.short,
+            classification: policyInfo.classification,
+            userTokens: userTokenTypes
+          });
+          if (hasAnon) {
+            anonEndpoints.push({
+              endpointUrl: ed.endpointUrl || endpointUrl,
+              securityMode,
+              securityPolicyUri: policyUri
+            });
+          }
+        }
+        probe.security.advertisedAnonymous = anonEndpoints.length > 0;
+        probe.security.anonymousEndpoints = anonEndpoints;
+        probe.security.allEndpoints = allEndpoints;
+      }
+    } catch (e) {
+      // Endpoint query failed; continue but record
+      probe.security.endpointsQueried = false;
+    }
+
+    // Try creating an anonymous session explicitly
+    try {
+      session = await client.createSession(); // default is Anonymous
+      probe.security.anonymousSession.success = true;
+      sendProgress(event, { percent: 45, label: 'Session established', task: 'Created OPC UA session (anonymous)' });
+
+      // Capture negotiated channel security details
+      try {
+        const sc = client && client._secureChannel;
+        if (sc) {
+          const mode = String(sc.securityMode);
+          const policyUri = sc.securityPolicyUri || sc.securityPolicy || null;
+          const info = classifySecurityPolicy(policyUri);
+          let certSummary = null;
+          if (sc.serverCertificate && Buffer.isBuffer(sc.serverCertificate) && sc.serverCertificate.length) {
+            // Provide a short fingerprint-like summary without heavy parsing
+            const crypto = require('crypto');
+            const sha1 = crypto.createHash('sha1').update(sc.serverCertificate).digest('hex').toUpperCase();
+            certSummary = `len=${sc.serverCertificate.length}B sha1=${sha1.slice(0, 16)}…`;
+          }
+          probe.security.negotiatedChannel = {
+            securityMode: mode,
+            securityPolicyUri: policyUri || null,
+            policyShort: info.short,
+            classification: info.classification,
+            serverCertificateSummary: certSummary
+          };
+        }
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      probe.security.anonymousSession.success = false;
+      probe.security.anonymousSession.error = e && (e.message || String(e));
+      // Cannot proceed with subscription if session failed; disconnect and finish
+      try { await client.disconnect(); } catch {}
+      // Advance progress to completion with warning
+      sendProgress(event, { percent: 100, label: 'Completed', task: 'Anonymous session not allowed; security info captured', done: true, success: false });
+      // Write log and return early
+      const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+      const logFileName = `opcua-rtpm-diagnostic-tool_${timestamp}.log`;
+      const logPath = path.join(logDir, logFileName);
+      const lines = [];
+      lines.push('='.repeat(80));
+      lines.push('OPCUA-RTPM DIAGNOSTIC TOOL');
+      lines.push('='.repeat(80));
+      lines.push(`When: ${new Date().toISOString()}`);
+      lines.push(`EndpointUrl: ${probe.endpointUrl}`);
+      lines.push(`DurationMs: ${Date.now() - startedAt}`);
+      lines.push('-'.repeat(80));
+      lines.push('Endpoint Security:');
+      lines.push(`EndpointsQueried: ${probe.security.endpointsQueried ? 'yes' : 'no'}`);
+      lines.push(`AdvertisedAnonymous: ${probe.security.advertisedAnonymous ? 'yes' : 'no'}`);
+      if (probe.security.endpointsQueried && probe.security.allEndpoints.length) {
+        lines.push('All Discovered Endpoints:');
+        probe.security.allEndpoints.forEach((ed, idx) => {
+          lines.push(`  [${idx + 1}] ${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri} (${ed.policyShort}; ${ed.classification}); tokens=${ed.userTokens.join(',')}`);
+        });
+      }
+      if (probe.security.anonymousEndpoints.length) {
+        probe.security.anonymousEndpoints.forEach((ed, idx) => {
+          lines.push(`  [${idx + 1}] ${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri}`);
+        });
+      }
+      lines.push(`AnonymousSession: ${probe.security.anonymousSession.success ? 'success' : 'failed'}`);
+      if (probe.security.anonymousSession.error) {
+        lines.push(`AnonymousSessionError: ${probe.security.anonymousSession.error}`);
+      }
+      if (probe.security.negotiatedChannel && (probe.security.negotiatedChannel.securityMode || probe.security.negotiatedChannel.securityPolicyUri)) {
+        lines.push(`NegotiatedChannel: mode=${probe.security.negotiatedChannel.securityMode} policy=${probe.security.negotiatedChannel.securityPolicyUri} (${probe.security.negotiatedChannel.policyShort}; ${probe.security.negotiatedChannel.classification})`);
+        if (probe.security.negotiatedChannel.serverCertificateSummary) {
+          lines.push(`NegotiatedChannelServerCert: ${probe.security.negotiatedChannel.serverCertificateSummary}`);
+        }
+      }
+      lines.push('-'.repeat(80));
+      lines.push('Client Callback Info:');
+      if (probe.clientSocket) {
+        lines.push(`Local: ${probe.clientSocket.localAddress}:${probe.clientSocket.localPort}`);
+        lines.push(`Remote: ${probe.clientSocket.remoteAddress}:${probe.clientSocket.remotePort}`);
+      } else {
+        lines.push('Local: (unavailable)');
+      }
+      lines.push('-'.repeat(80));
+      lines.push('System A Network Interfaces:');
+      adapters.forEach(a => {
+        lines.push(`Adapter: ${a.name}`);
+        a.addresses.forEach(addr => lines.push(`  ${addr.address} cidr=${addr.cidr} mac=${addr.mac}`));
+      });
+      fs.writeFileSync(logPath, lines.join('\n'));
+      return { probe, logPath, logFileName };
+    }
 
     // Create a subscription to force server->client publish activity over the secure channel
     subscription = opcua.ClientSubscription.create(session, {
@@ -352,6 +627,7 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
       priority: 10
     });
     probe.subscriptionCreated = true;
+    sendProgress(event, { percent: 55, label: 'Subscribed', task: 'Created subscription' });
 
     const itemToMonitor = {
       nodeId: opcua.resolveNodeId(nodeId),
@@ -362,7 +638,7 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
       discardOldest: true,
       queueSize: 10
     };
-    const monitoredItem = opcua.ClientMonitoredItem.create(
+    monitoredItem = opcua.ClientMonitoredItem.create(
       subscription,
       itemToMonitor,
       parameters,
@@ -370,10 +646,12 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
     );
 
     // Wait briefly to allow any sockets/listeners to initialize
+    sendProgress(event, { percent: 60, label: 'Preparing…', task: 'Waiting for server activity' });
     await new Promise(r => setTimeout(r, 1500));
 
     // Capture listeners after creating subscription
     probe.listenersAfter = await listProcessListeners();
+    sendProgress(event, { percent: 65, label: 'Collecting environment…', task: 'Captured listeners after subscription' });
 
     // Optionally monitor for SYN attempts from System B to any new listeners
     if (synMonitorSeconds > 0) {
@@ -390,14 +668,27 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
         localIp = adapters[0].addresses[0].address;
       }
 
+      // Progress during SYN monitoring (65% -> 95%)
+      const monitorStart = Date.now();
+      const monitorTotalMs = Math.max(1000, synMonitorSeconds * 1000);
+      sendProgress(event, { percent: 66, label: 'Monitoring connections…', task: 'Listening for SYN attempts' });
+      const progressTimer = setInterval(() => {
+        const elapsed = Date.now() - monitorStart;
+        const frac = Math.min(1, elapsed / monitorTotalMs);
+        const p = 66 + Math.floor(frac * (95 - 66));
+        sendProgress(event, { percent: p, label: 'Monitoring connections…', task: 'Listening for SYN attempts' });
+      }, 500);
+
       const { method, events } = await monitorSynAttempts({
         durationSeconds: synMonitorSeconds,
         localIp,
         targetPorts,
         sourceHost: systemBHost || undefined
       });
+      clearInterval(progressTimer);
       probe.synMonitor.method = method;
       probe.synMonitor.events = events;
+      sendProgress(event, { percent: 95, label: 'Monitoring complete', task: `${events.length} attempt(s) captured` });
     }
 
     // Clean up monitored item and subscription
@@ -411,19 +702,45 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
     try { if (session) await session.close(); } catch {}
     try { await client.disconnect(); } catch {}
     probe.error = e && (e.message || String(e));
+    sendProgress(event, { percent: 100, label: 'Failed', task: probe.error || 'Probe failed', done: true, success: false });
   }
 
   // Write structured log
   const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-  const logFileName = `opcua-callback-probe_${timestamp}.log`;
+  const logFileName = `opcua-rtpm-diagnostic-tool_${timestamp}.log`;
   const logPath = path.join(logDir, logFileName);
   const lines = [];
   lines.push('='.repeat(80));
-  lines.push('OPC UA CALLBACK PATH PROBE');
+  lines.push('OPCUA-RTPM DIAGNOSTIC TOOL');
   lines.push('='.repeat(80));
   lines.push(`When: ${new Date().toISOString()}`);
   lines.push(`EndpointUrl: ${probe.endpointUrl}`);
   lines.push(`DurationMs: ${Date.now() - startedAt}`);
+  lines.push('-'.repeat(80));
+  lines.push('Endpoint Security:');
+  lines.push(`EndpointsQueried: ${probe.security.endpointsQueried ? 'yes' : 'no'}`);
+  lines.push(`AdvertisedAnonymous: ${probe.security.advertisedAnonymous ? 'yes' : 'no'}`);
+  if (probe.security.endpointsQueried && probe.security.allEndpoints.length) {
+    lines.push('All Discovered Endpoints:');
+    probe.security.allEndpoints.forEach((ed, idx) => {
+      lines.push(`  [${idx + 1}] ${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri} (${ed.policyShort}; ${ed.classification}); tokens=${ed.userTokens.join(',')}`);
+    });
+  }
+  if (probe.security.anonymousEndpoints.length) {
+    probe.security.anonymousEndpoints.forEach((ed, idx) => {
+      lines.push(`  [${idx + 1}] ${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri}`);
+    });
+  }
+  lines.push(`AnonymousSession: ${probe.security.anonymousSession.success ? 'success' : 'failed'}`);
+  if (probe.security.anonymousSession.error) {
+    lines.push(`AnonymousSessionError: ${probe.security.anonymousSession.error}`);
+  }
+  if (probe.security.negotiatedChannel && (probe.security.negotiatedChannel.securityMode || probe.security.negotiatedChannel.securityPolicyUri)) {
+    lines.push(`NegotiatedChannel: mode=${probe.security.negotiatedChannel.securityMode} policy=${probe.security.negotiatedChannel.securityPolicyUri} (${probe.security.negotiatedChannel.policyShort}; ${probe.security.negotiatedChannel.classification})`);
+    if (probe.security.negotiatedChannel.serverCertificateSummary) {
+      lines.push(`NegotiatedChannelServerCert: ${probe.security.negotiatedChannel.serverCertificateSummary}`);
+    }
+  }
   lines.push('-'.repeat(80));
   lines.push('Client Callback Info:');
   if (probe.clientSocket) {
@@ -467,6 +784,10 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
     lines.push(`Error: ${probe.error}`);
   }
   fs.writeFileSync(logPath, lines.join('\n'));
+
+  if (!probe.error) {
+    sendProgress(event, { percent: 100, label: 'Completed', task: 'Probe complete', done: true, success: true });
+  }
 
   return { probe, logPath, logFileName };
 });
