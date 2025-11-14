@@ -41,8 +41,34 @@ function createWindow() {
   });
 
   mainWindow.loadFile('index.html');
+  
+  // Optimized: show window immediately when ready
   mainWindow.once('ready-to-show', () => {
-    if (!mainWindow.isDestroyed()) mainWindow.show();
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.show();
+      // Focus window for better UX
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+  
+  // Sync menu when window finishes loading - optimized delay
+  mainWindow.webContents.once('did-finish-load', () => {
+    // Request current theme from renderer to ensure menu is synced
+    // Reduced delay for faster responsiveness
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.executeJavaScript(`
+          (function() {
+            const theme = localStorage.getItem('opcRtpmTheme') || 'light';
+            if (window.electronAPI && window.electronAPI.themeReady) {
+              window.electronAPI.themeReady({ theme: theme });
+            }
+            return theme;
+          })();
+        `).catch(() => {});
+      }
+    }, 100); // Reduced from 200ms to 100ms
   });
 
   // Build application menu with Help > About
@@ -60,7 +86,7 @@ function createWindow() {
           id: 'show-current-task',
           label: 'Show Current Task',
           type: 'checkbox',
-          checked: false,
+          checked: true, // Default to on
           accelerator: 'CmdOrCtrl+T',
           click: (menuItem) => {
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -68,35 +94,66 @@ function createWindow() {
             }
           }
         },
-        { type: 'separator' },
+      ]
+    },
+    {
+      label: 'Themes',
+      submenu: [
         {
-          label: 'Theme',
-          submenu: [
-            {
-              id: 'theme-light',
-              label: 'Light',
-              type: 'radio',
-              checked: true,
-              accelerator: 'CmdOrCtrl+Alt+L',
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.webContents.send('theme:set', { theme: 'light' });
-                }
-              }
-            },
-            {
-              id: 'theme-dark',
-              label: 'Dark',
-              type: 'radio',
-              checked: false,
-              accelerator: 'CmdOrCtrl+Alt+D',
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
+          id: 'theme-light',
+          label: 'Light Theme',
+          type: 'checkbox',
+          checked: true, // Default to light
+          accelerator: 'CmdOrCtrl+Alt+L',
+          click: (menuItem) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              if (menuItem.checked) {
+                // Uncheck dark theme if light is checked
+                const menu = Menu.getApplicationMenu();
+                const darkItem = menu && menu.getMenuItemById('theme-dark');
+                if (darkItem) darkItem.checked = false;
+                syncMenuTheme('light');
+                mainWindow.webContents.send('theme:set', { theme: 'light' });
+              } else {
+                // If unchecking light, check dark instead
+                const menu = Menu.getApplicationMenu();
+                const darkItem = menu && menu.getMenuItemById('theme-dark');
+                if (darkItem) {
+                  darkItem.checked = true;
+                  syncMenuTheme('dark');
                   mainWindow.webContents.send('theme:set', { theme: 'dark' });
                 }
               }
             }
-          ]
+          }
+        },
+        {
+          id: 'theme-dark',
+          label: 'Dark Theme',
+          type: 'checkbox',
+          checked: false, // Default to unchecked (light is default)
+          accelerator: 'CmdOrCtrl+Alt+D',
+          click: (menuItem) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              if (menuItem.checked) {
+                // Uncheck light theme if dark is checked
+                const menu = Menu.getApplicationMenu();
+                const lightItem = menu && menu.getMenuItemById('theme-light');
+                if (lightItem) lightItem.checked = false;
+                syncMenuTheme('dark');
+                mainWindow.webContents.send('theme:set', { theme: 'dark' });
+              } else {
+                // If unchecking dark, check light instead
+                const menu = Menu.getApplicationMenu();
+                const lightItem = menu && menu.getMenuItemById('theme-light');
+                if (lightItem) {
+                  lightItem.checked = true;
+                  syncMenuTheme('light');
+                  mainWindow.webContents.send('theme:set', { theme: 'light' });
+                }
+              }
+            }
+          }
         },
       ]
     },
@@ -152,6 +209,31 @@ ipcMain.handle('app:open-external', async (_event, url) => {
   }
 });
 
+
+// Helper function to sync menu theme state (mutually exclusive checkboxes)
+function syncMenuTheme(theme) {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const lightItem = menu.getMenuItemById('theme-light');
+  const darkItem = menu.getMenuItemById('theme-dark');
+  if (lightItem) {
+    lightItem.checked = (theme === 'light');
+  }
+  if (darkItem) {
+    darkItem.checked = (theme === 'dark');
+  }
+}
+
+ipcMain.on('theme:ready', (_event, data = {}) => {
+  const theme = data && data.theme;
+  if (theme === 'light' || theme === 'dark') {
+    syncMenuTheme(theme);
+  } else {
+    // If no valid theme received, default to light
+    syncMenuTheme('light');
+  }
+});
+
 // Sync menu checkbox state from renderer's persisted settings
 ipcMain.on('settings:ready', (_event, data = {}) => {
   const menu = Menu.getApplicationMenu();
@@ -160,16 +242,6 @@ ipcMain.on('settings:ready', (_event, data = {}) => {
   if (item) {
     item.checked = !!data.showTask;
   }
-});
-
-ipcMain.on('theme:ready', (_event, data = {}) => {
-  const menu = Menu.getApplicationMenu();
-  if (!menu) return;
-  const lightItem = menu.getMenuItemById('theme-light');
-  const darkItem = menu.getMenuItemById('theme-dark');
-  const theme = (data && data.theme) === 'dark' ? 'dark' : 'light';
-  if (lightItem) lightItem.checked = theme === 'light';
-  if (darkItem) darkItem.checked = theme === 'dark';
 });
 
 app.on('window-all-closed', () => {
@@ -204,7 +276,19 @@ async function listProcessListeners() {
   });
 }
 
+// Cache network interfaces (they don't change often during app lifetime)
+let cachedNetworkInterfaces = null;
+let networkInterfacesCacheTime = 0;
+const NETWORK_INTERFACES_CACHE_TTL = 30000; // 30 seconds
+
 function listNetworkInterfaces() {
+  const now = Date.now();
+  // Return cached interfaces if still valid
+  if (cachedNetworkInterfaces && (now - networkInterfacesCacheTime) < NETWORK_INTERFACES_CACHE_TTL) {
+    return cachedNetworkInterfaces;
+  }
+  
+  // Refresh cache
   const ifaces = os.networkInterfaces();
   const adapters = [];
   for (const [name, entries] of Object.entries(ifaces)) {
@@ -220,6 +304,9 @@ function listNetworkInterfaces() {
       adapters.push({ name, addresses: ipv4s });
     }
   }
+  
+  cachedNetworkInterfaces = adapters;
+  networkInterfacesCacheTime = now;
   return adapters;
 }
 
@@ -245,13 +332,55 @@ function getClientSocketInfo(client) {
   return null;
 }
 
+// Throttle progress updates to avoid overwhelming the renderer
+let lastProgressTime = 0;
+let progressThrottleMs = 100; // Update at most every 100ms
+let pendingProgress = null;
+let progressTimeout = null;
+
 function sendProgress(event, payload) {
   try {
-    if (event && event.sender) {
+    if (!event || !event.sender) return;
+    
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastProgressTime;
+    
+    // Always send if it's been long enough, or if it's a completion message
+    if (timeSinceLastUpdate >= progressThrottleMs || (payload && (payload.done || payload.percent === 100))) {
       event.sender.send('diagnostics:progress', payload || {});
+      lastProgressTime = now;
+      pendingProgress = null;
+      if (progressTimeout) {
+        clearTimeout(progressTimeout);
+        progressTimeout = null;
+      }
+    } else {
+      // Throttle: store latest progress and send it later
+      pendingProgress = payload;
+      if (!progressTimeout) {
+        const remaining = progressThrottleMs - timeSinceLastUpdate;
+        progressTimeout = setTimeout(() => {
+          if (pendingProgress && event && event.sender) {
+            event.sender.send('diagnostics:progress', pendingProgress);
+            lastProgressTime = Date.now();
+            pendingProgress = null;
+            progressTimeout = null;
+          }
+        }, remaining);
+      }
     }
   } catch {
     // ignore send errors
+  }
+}
+
+// Reset progress throttling for new probe
+function resetProgressThrottle() {
+  lastProgressTime = 0;
+  pendingProgress = null;
+  if (progressTimeout) {
+    clearTimeout(progressTimeout);
+    progressTimeout = null;
   }
 }
 
@@ -360,7 +489,7 @@ async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts =
               try { cap.close(); } catch {}
               resolve();
             }
-          }, 200);
+          }, 1000); // Reduced check frequency from 200ms to 1000ms
         });
         return { method: 'pcap', events };
       }
@@ -370,13 +499,16 @@ async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts =
   }
 
   // Fallback: poll netstat for SYN-RECEIVED entries (limited visibility)
-  const intervalMs = 500;
+  // Optimized: reduced polling frequency from 500ms to 1000ms
+  const intervalMs = 1000; // Reduced frequency for better performance
+  const seenConnections = new Set(); // Deduplicate connections
+  
   while (Date.now() < endTs) {
     // eslint-disable-next-line no-await-in-loop
     await new Promise((r) => setTimeout(r, intervalMs));
     // eslint-disable-next-line no-await-in-loop
     const snapshot = await new Promise((resolve) => {
-      exec('netstat -ano -p tcp', { windowsHide: true }, (err, stdout) => {
+      exec('netstat -ano -p tcp', { windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => {
         if (err) {
           resolve([]);
           return;
@@ -396,7 +528,12 @@ async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts =
           if (localIp && localAddr !== localIp && localAddr !== '0.0.0.0') continue;
           if (sourceHost && remoteAddr !== sourceHost) continue;
           if (/SYN/i.test(state)) {
-            matches.push({ localAddr, localPort, remoteAddr, remotePort, state });
+            // Deduplicate: only add if we haven't seen this connection before
+            const connKey = `${localAddr}:${localPort}-${remoteAddr}:${remotePort}`;
+            if (!seenConnections.has(connKey)) {
+              seenConnections.add(connKey);
+              matches.push({ localAddr, localPort, remoteAddr, remotePort, state });
+            }
           }
         }
         resolve(matches);
@@ -404,16 +541,18 @@ async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts =
     });
     if (snapshot.length) {
       const ts = new Date().toISOString();
-      snapshot.forEach(s => events.push({
-        timestamp: ts,
-        src: s.remoteAddr,
-        dst: s.localAddr,
-        srcPort: s.remotePort,
-        dstPort: s.localPort,
-        syn: true,
-        ack: false,
-        method: 'netstat'
-      }));
+      snapshot.forEach(s => {
+        events.push({
+          timestamp: ts,
+          src: s.remoteAddr,
+          dst: s.localAddr,
+          srcPort: s.remotePort,
+          dstPort: s.localPort,
+          syn: true,
+          ack: false,
+          method: 'netstat'
+        });
+      });
     }
   }
   return { method: 'netstat', events };
@@ -463,6 +602,9 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
     }
   };
 
+  // Reset progress throttling for new probe
+  resetProgressThrottle();
+  
   // Initial progress
   sendProgress(event, { percent: 5, label: 'Starting…', task: 'Initializing probe…' });
 
@@ -619,7 +761,23 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
         lines.push(`Adapter: ${a.name}`);
         a.addresses.forEach(addr => lines.push(`  ${addr.address} cidr=${addr.cidr} mac=${addr.mac}`));
       });
-      fs.writeFileSync(logPath, lines.join('\n'));
+      // Write log asynchronously with error handling
+      const logContent = lines.join('\n');
+      try {
+        await new Promise((resolve, reject) => {
+          fs.writeFile(logPath, logContent, 'utf8', (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      } catch (logError) {
+        // Log write failed, but don't fail the probe
+        console.error('Failed to write log file:', logError);
+        // Continue without failing
+      } finally {
+        // Cleanup progress throttling
+        resetProgressThrottle();
+      }
       return { probe, logPath, logFileName };
     }
 
@@ -675,121 +833,177 @@ ipcMain.handle('diagnostics:opcua-probe', async (event, {
       }
 
       // Progress during SYN monitoring (65% -> 95%)
+      // Optimized: reduced progress update frequency
       const monitorStart = Date.now();
       const monitorTotalMs = Math.max(1000, synMonitorSeconds * 1000);
       sendProgress(event, { percent: 66, label: 'Monitoring connections…', task: 'Listening for SYN attempts' });
-      const progressTimer = setInterval(() => {
-        const elapsed = Date.now() - monitorStart;
-        const frac = Math.min(1, elapsed / monitorTotalMs);
-        const p = 66 + Math.floor(frac * (95 - 66));
-        sendProgress(event, { percent: p, label: 'Monitoring connections…', task: 'Listening for SYN attempts' });
-      }, 500);
+      let progressTimer = null;
+      try {
+        progressTimer = setInterval(() => {
+          const elapsed = Date.now() - monitorStart;
+          const frac = Math.min(1, elapsed / monitorTotalMs);
+          const p = 66 + Math.floor(frac * (95 - 66));
+          sendProgress(event, { percent: p, label: 'Monitoring connections…', task: 'Listening for SYN attempts' });
+        }, 1000); // Reduced from 500ms to 1000ms for better performance
 
-      const { method, events } = await monitorSynAttempts({
-        durationSeconds: synMonitorSeconds,
-        localIp,
-        targetPorts,
-        sourceHost: systemBHost || undefined
-      });
-      clearInterval(progressTimer);
-      probe.synMonitor.method = method;
-      probe.synMonitor.events = events;
-      sendProgress(event, { percent: 95, label: 'Monitoring complete', task: `${events.length} attempt(s) captured` });
+        const { method, events } = await monitorSynAttempts({
+          durationSeconds: synMonitorSeconds,
+          localIp,
+          targetPorts,
+          sourceHost: systemBHost || undefined
+        });
+        probe.synMonitor.method = method;
+        probe.synMonitor.events = events;
+        sendProgress(event, { percent: 95, label: 'Monitoring complete', task: `${events.length} attempt(s) captured` });
+      } finally {
+        // Always cleanup progress timer
+        if (progressTimer) {
+          clearInterval(progressTimer);
+          progressTimer = null;
+        }
+      }
     }
 
     // Clean up monitored item and subscription
-    try { await monitoredItem.terminate(); } catch {}
-    try { await subscription.terminate(); } catch {}
-    try { await session.close(); } catch {}
-    try { await client.disconnect(); } catch {}
+    try { 
+      if (monitoredItem) await monitoredItem.terminate(); 
+      monitoredItem = null;
+    } catch {}
+    try { 
+      if (subscription) await subscription.terminate(); 
+      subscription = null;
+    } catch {}
+    try { 
+      if (session) await session.close(); 
+      session = null;
+    } catch {}
+    try { 
+      if (client) await client.disconnect(); 
+      client = null;
+    } catch {}
   } catch (e) {
     // Attempt graceful cleanup
-    try { if (subscription) await subscription.terminate(); } catch {}
-    try { if (session) await session.close(); } catch {}
-    try { await client.disconnect(); } catch {}
+    try { 
+      if (monitoredItem) await monitoredItem.terminate(); 
+      monitoredItem = null;
+    } catch {}
+    try { 
+      if (subscription) await subscription.terminate(); 
+      subscription = null;
+    } catch {}
+    try { 
+      if (session) await session.close(); 
+      session = null;
+    } catch {}
+    try { 
+      if (client) await client.disconnect(); 
+      client = null;
+    } catch {}
     probe.error = e && (e.message || String(e));
     sendProgress(event, { percent: 100, label: 'Failed', task: probe.error || 'Probe failed', done: true, success: false });
+  } finally {
+    // Cleanup progress throttling
+    resetProgressThrottle();
   }
 
-  // Write structured log
+  // Write structured log asynchronously to avoid blocking
   const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
   const logFileName = `opcua-rtpm-diagnostic-tool_${timestamp}.log`;
   const logPath = path.join(logDir, logFileName);
-  const lines = [];
-  lines.push('='.repeat(80));
-  lines.push('OPCUA-RTPM DIAGNOSTIC TOOL');
-  lines.push('='.repeat(80));
-  lines.push(`When: ${new Date().toISOString()}`);
-  lines.push(`EndpointUrl: ${probe.endpointUrl}`);
-  lines.push(`DurationMs: ${Date.now() - startedAt}`);
-  lines.push('-'.repeat(80));
-  lines.push('Endpoint Security:');
-  lines.push(`EndpointsQueried: ${probe.security.endpointsQueried ? 'yes' : 'no'}`);
-  lines.push(`AdvertisedAnonymous: ${probe.security.advertisedAnonymous ? 'yes' : 'no'}`);
-  if (probe.security.endpointsQueried && probe.security.allEndpoints.length) {
-    lines.push('All Discovered Endpoints:');
-    probe.security.allEndpoints.forEach((ed, idx) => {
-      lines.push(`  [${idx + 1}] ${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri} (${ed.policyShort}; ${ed.classification}); tokens=${ed.userTokens.join(',')}`);
-    });
-  }
-  if (probe.security.anonymousEndpoints.length) {
-    probe.security.anonymousEndpoints.forEach((ed, idx) => {
-      lines.push(`  [${idx + 1}] ${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri}`);
-    });
-  }
-  lines.push(`AnonymousSession: ${probe.security.anonymousSession.success ? 'success' : 'failed'}`);
-  if (probe.security.anonymousSession.error) {
-    lines.push(`AnonymousSessionError: ${probe.security.anonymousSession.error}`);
-  }
-  if (probe.security.negotiatedChannel && (probe.security.negotiatedChannel.securityMode || probe.security.negotiatedChannel.securityPolicyUri)) {
-    lines.push(`NegotiatedChannel: mode=${probe.security.negotiatedChannel.securityMode} policy=${probe.security.negotiatedChannel.securityPolicyUri} (${probe.security.negotiatedChannel.policyShort}; ${probe.security.negotiatedChannel.classification})`);
-    if (probe.security.negotiatedChannel.serverCertificateSummary) {
-      lines.push(`NegotiatedChannelServerCert: ${probe.security.negotiatedChannel.serverCertificateSummary}`);
-    }
-  }
-  lines.push('-'.repeat(80));
-  lines.push('Client Callback Info:');
-  if (probe.clientSocket) {
-    lines.push(`Local: ${probe.clientSocket.localAddress}:${probe.clientSocket.localPort}`);
-    lines.push(`Remote: ${probe.clientSocket.remoteAddress}:${probe.clientSocket.remotePort}`);
-  } else {
-    lines.push('Local: (unavailable)');
-  }
-  lines.push('-'.repeat(80));
-  lines.push('System A Network Interfaces:');
-  adapters.forEach(a => {
-    lines.push(`Adapter: ${a.name}`);
-    a.addresses.forEach(addr => lines.push(`  ${addr.address} cidr=${addr.cidr} mac=${addr.mac}`));
-  });
-  lines.push('-'.repeat(80));
-  lines.push('Process Listening Ports (before):');
-  if (!probe.listenersBefore.length) {
-    lines.push('  (none)');
-  } else {
-    probe.listenersBefore.forEach(l => lines.push(`  ${l.localAddress}:${l.localPort} pid=${l.pid}`));
-  }
-  lines.push('Process Listening Ports (after subscription):');
-  if (!probe.listenersAfter.length) {
-    lines.push('  (none)');
-  } else {
-    probe.listenersAfter.forEach(l => lines.push(`  ${l.localAddress}:${l.localPort} pid=${l.pid}`));
-  }
-  if (probe.synMonitor.enabled) {
+  
+  // Build log content asynchronously
+  const buildLogContent = () => {
+    const lines = [];
+    lines.push('='.repeat(80));
+    lines.push('OPCUA-RTPM DIAGNOSTIC TOOL');
+    lines.push('='.repeat(80));
+    lines.push(`When: ${new Date().toISOString()}`);
+    lines.push(`EndpointUrl: ${probe.endpointUrl}`);
+    lines.push(`DurationMs: ${Date.now() - startedAt}`);
     lines.push('-'.repeat(80));
-    lines.push(`Connection Attempt Logger: method=${probe.synMonitor.method || 'none'}`);
-    if (!probe.synMonitor.events.length) {
-      lines.push('  No SYN attempts captured');
-    } else {
-      probe.synMonitor.events.forEach(ev => {
-        lines.push(`  [${ev.timestamp}] ${ev.src}:${ev.srcPort} -> ${ev.dst}:${ev.dstPort} syn=${ev.syn} ack=${ev.ack || false}`);
+    lines.push('Endpoint Security:');
+    lines.push(`EndpointsQueried: ${probe.security.endpointsQueried ? 'yes' : 'no'}`);
+    lines.push(`AdvertisedAnonymous: ${probe.security.advertisedAnonymous ? 'yes' : 'no'}`);
+    if (probe.security.endpointsQueried && probe.security.allEndpoints.length) {
+      lines.push('All Discovered Endpoints:');
+      probe.security.allEndpoints.forEach((ed, idx) => {
+        lines.push(`  [${idx + 1}] ${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri} (${ed.policyShort}; ${ed.classification}); tokens=${ed.userTokens.join(',')}`);
       });
     }
-  }
-  if (probe.error) {
+    if (probe.security.anonymousEndpoints.length) {
+      probe.security.anonymousEndpoints.forEach((ed, idx) => {
+        lines.push(`  [${idx + 1}] ${ed.endpointUrl} mode=${ed.securityMode} policy=${ed.securityPolicyUri}`);
+      });
+    }
+    lines.push(`AnonymousSession: ${probe.security.anonymousSession.success ? 'success' : 'failed'}`);
+    if (probe.security.anonymousSession.error) {
+      lines.push(`AnonymousSessionError: ${probe.security.anonymousSession.error}`);
+    }
+    if (probe.security.negotiatedChannel && (probe.security.negotiatedChannel.securityMode || probe.security.negotiatedChannel.securityPolicyUri)) {
+      lines.push(`NegotiatedChannel: mode=${probe.security.negotiatedChannel.securityMode} policy=${probe.security.negotiatedChannel.securityPolicyUri} (${probe.security.negotiatedChannel.policyShort}; ${probe.security.negotiatedChannel.classification})`);
+      if (probe.security.negotiatedChannel.serverCertificateSummary) {
+        lines.push(`NegotiatedChannelServerCert: ${probe.security.negotiatedChannel.serverCertificateSummary}`);
+      }
+    }
     lines.push('-'.repeat(80));
-    lines.push(`Error: ${probe.error}`);
+    lines.push('Client Callback Info:');
+    if (probe.clientSocket) {
+      lines.push(`Local: ${probe.clientSocket.localAddress}:${probe.clientSocket.localPort}`);
+      lines.push(`Remote: ${probe.clientSocket.remoteAddress}:${probe.clientSocket.remotePort}`);
+    } else {
+      lines.push('Local: (unavailable)');
+    }
+    lines.push('-'.repeat(80));
+    lines.push('System A Network Interfaces:');
+    adapters.forEach(a => {
+      lines.push(`Adapter: ${a.name}`);
+      a.addresses.forEach(addr => lines.push(`  ${addr.address} cidr=${addr.cidr} mac=${addr.mac}`));
+    });
+    lines.push('-'.repeat(80));
+    lines.push('Process Listening Ports (before):');
+    if (!probe.listenersBefore.length) {
+      lines.push('  (none)');
+    } else {
+      probe.listenersBefore.forEach(l => lines.push(`  ${l.localAddress}:${l.localPort} pid=${l.pid}`));
+    }
+    lines.push('Process Listening Ports (after subscription):');
+    if (!probe.listenersAfter.length) {
+      lines.push('  (none)');
+    } else {
+      probe.listenersAfter.forEach(l => lines.push(`  ${l.localAddress}:${l.localPort} pid=${l.pid}`));
+    }
+    if (probe.synMonitor.enabled) {
+      lines.push('-'.repeat(80));
+      lines.push(`Connection Attempt Logger: method=${probe.synMonitor.method || 'none'}`);
+      if (!probe.synMonitor.events.length) {
+        lines.push('  No SYN attempts captured');
+      } else {
+        probe.synMonitor.events.forEach(ev => {
+          lines.push(`  [${ev.timestamp}] ${ev.src}:${ev.srcPort} -> ${ev.dst}:${ev.dstPort} syn=${ev.syn} ack=${ev.ack || false}`);
+        });
+      }
+    }
+    if (probe.error) {
+      lines.push('-'.repeat(80));
+      lines.push(`Error: ${probe.error}`);
+    }
+    return lines.join('\n');
+  };
+  
+  // Write log asynchronously (non-blocking) with error handling
+  const logContent = buildLogContent();
+  try {
+    await new Promise((resolve, reject) => {
+      fs.writeFile(logPath, logContent, 'utf8', (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  } catch (logError) {
+    // Log write failed, but don't fail the probe
+    console.error('Failed to write log file:', logError);
+    // Continue without failing
   }
-  fs.writeFileSync(logPath, lines.join('\n'));
 
   if (!probe.error) {
     sendProgress(event, { percent: 100, label: 'Completed', task: 'Probe complete', done: true, success: true });

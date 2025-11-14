@@ -70,13 +70,27 @@ async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts =
             }
           };
           cap.on('packet', onPacket);
-          const timer = setInterval(() => {
-            if (Date.now() >= endTs) {
+          let timer = null;
+          try {
+            timer = setInterval(() => {
+              if (Date.now() >= endTs) {
+                if (timer) {
+                  clearInterval(timer);
+                  timer = null;
+                }
+                try { cap.close(); } catch {}
+                resolve();
+              }
+            }, 1000); // Reduced check frequency from 200ms to 1000ms
+          } catch (err) {
+            // Cleanup on error
+            if (timer) {
               clearInterval(timer);
-              try { cap.close(); } catch {}
-              resolve();
+              timer = null;
             }
-          }, 200);
+            try { cap.close(); } catch {}
+            resolve();
+          }
         });
         return { method: 'pcap', events };
       }
@@ -86,13 +100,16 @@ async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts =
   }
 
   // Fallback: poll netstat for SYN-RECEIVED entries
-  const intervalMs = 500;
+  // Optimized: reduced polling frequency and added deduplication
+  const intervalMs = 1000; // Reduced from 500ms to 1000ms
+  const seenConnections = new Set(); // Deduplicate connections
+  
   while (Date.now() < endTs) {
     // eslint-disable-next-line no-await-in-loop
     await new Promise((r) => setTimeout(r, intervalMs));
     // eslint-disable-next-line no-await-in-loop
     const snapshot = await new Promise((resolve) => {
-      exec('netstat -ano -p tcp', { windowsHide: true }, (err, stdout) => {
+      exec('netstat -ano -p tcp', { windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => {
         if (err) {
           resolve([]);
           return;
@@ -111,7 +128,12 @@ async function monitorSynAttempts({ durationSeconds = 10, localIp, targetPorts =
           if (localIp && localAddr !== localIp && localAddr !== '0.0.0.0') continue;
           if (sourceHost && remoteAddr !== sourceHost) continue;
           if (/SYN/i.test(state)) {
-            matches.push({ localAddr, localPort, remoteAddr, remotePort, state });
+            // Deduplicate: only add if we haven't seen this connection before
+            const connKey = `${localAddr}:${localPort}-${remoteAddr}:${remotePort}`;
+            if (!seenConnections.has(connKey)) {
+              seenConnections.add(connKey);
+              matches.push({ localAddr, localPort, remoteAddr, remotePort, state });
+            }
           }
         }
         resolve(matches);
